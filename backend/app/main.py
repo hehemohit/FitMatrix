@@ -34,6 +34,8 @@ class BiometricPayload(BaseModel):
     history: Optional[List[ChatHistoryItem]] = []
     readiness_score: Optional[int] = None
     prescribed_workout: Optional[str] = None
+    user_profile: Optional[dict] = {}
+    daily_log: Optional[dict] = {}
 
 @app.get("/health")
 async def health_check():
@@ -42,11 +44,11 @@ async def health_check():
 @app.post("/api/v1/chat")
 async def chat_endpoint(payload: BiometricPayload):
     try:
-        # Reconstruct chat turns so agents have full context of the ongoing conversation
+        # Decouple State from Chat: Window raw conversation turns to strictly the last 2 items
+        # Persistent facts (diet preferences, goals, logs) live in structured user_profile / daily_log
         messages = []
         if payload.history:
-            # Keep up to the last 6 turns to maintain focused context without bloating prompt
-            for item in payload.history[-6:]:
+            for item in payload.history[-2:]:
                 if item.role == "user":
                     messages.append(HumanMessage(content=item.text))
                 elif item.role == "coach":
@@ -64,6 +66,9 @@ async def chat_endpoint(payload: BiometricPayload):
             "remaining_calories": 2400,
             "remaining_protein_g": 160,
             "prescribed_workout": payload.prescribed_workout,
+            "user_profile": payload.user_profile or {},
+            "daily_log": payload.daily_log or {},
+            "current_topic": None,
             "next_step": "supervisor"
         }
 
@@ -91,7 +96,10 @@ async def chat_endpoint(payload: BiometricPayload):
             "readiness_score": final_state.get("readiness_score"),
             "fatigue_flag": final_state.get("fatigue_flag"),
             "prescribed_workout": workout,
-            "reply": last_message
+            "reply": last_message,
+            "user_profile": final_state.get("user_profile", {}),
+            "daily_log": final_state.get("daily_log", {}),
+            "current_topic": final_state.get("current_topic"),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

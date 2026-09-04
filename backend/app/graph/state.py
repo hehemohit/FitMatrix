@@ -17,6 +17,11 @@ class FitMatrixState(TypedDict):
     remaining_calories: int
     remaining_protein_g: int
     prescribed_workout: Optional[str]
+
+    # Decoupled Structured State / Entity Profiles
+    user_profile: dict  # {"dietary_preference": str, "allergies": List[str], "fitness_goal": str, ...}
+    daily_log: dict     # {"meals_logged": List[str], "workouts_completed": List[str], ...}
+    current_topic: Optional[str]
     
     # Supervisor routing flag
     next_step: str

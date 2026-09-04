@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { syncHealthConnectData, HealthSnapshot } from './src/services/healthService';
 import { sendBiometricsAndMessage } from './src/api/coachApi';
-import { CoachResponse } from './src/types/schema';
+import { CoachResponse, UserProfile, DailyLog } from './src/types/schema';
 
 export default function App() {
   const [healthData, setHealthData] = useState<HealthSnapshot>({
@@ -29,6 +29,8 @@ export default function App() {
     fatigue_flag: 'nominal',
     prescribed_workout: 'Awaiting prompt...',
   });
+  const [userProfile, setUserProfile] = useState<UserProfile>({});
+  const [dailyLog, setDailyLog] = useState<DailyLog>({});
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -49,15 +51,21 @@ export default function App() {
     setLoading(true);
 
     try {
+      // Decouple State from Chat: Window history to strictly the last 2 turns
+      // All persistent context (dietary preferences, goals) is preserved in user_profile
+      const recentHistory = messages.slice(-2).map(m => ({ role: m.sender, text: m.text }));
+
       const res = await sendBiometricsAndMessage({
         user_id: 'usr_dev_1',
         message: userPrompt,
         steps_today: healthData.steps,
         sleep_minutes: healthData.sleepMinutes,
         logged_workouts: healthData.workouts,
-        history: messages.map(m => ({ role: m.sender, text: m.text })),
+        history: recentHistory,
         readiness_score: coachState.readiness_score,
         prescribed_workout: coachState.prescribed_workout,
+        user_profile: userProfile,
+        daily_log: dailyLog,
       });
 
       setCoachState({
@@ -65,6 +73,8 @@ export default function App() {
         fatigue_flag: res.fatigue_flag,
         prescribed_workout: res.prescribed_workout,
       });
+      if (res.user_profile) setUserProfile(res.user_profile);
+      if (res.daily_log) setDailyLog(res.daily_log);
 
       setMessages(prev => [...prev, { sender: 'coach', text: res.reply }]);
     } catch (error: any) {

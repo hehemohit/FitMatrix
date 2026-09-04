@@ -20,6 +20,7 @@
 - [Health Connect Integration](#health-connect-integration)
 - [How the Coaching Pipeline Works](#how-the-coaching-pipeline-works)
 - [Roadmap](#roadmap)
+- [Engineering & Problems Log](problemsLog.md)
 - [Contributing](#contributing)
 
 ---
@@ -91,7 +92,10 @@ FitMatrix uses a **Supervisor-Specialist** pattern powered by [LangGraph](https:
 
 | Field | Type | Source |
 |---|---|---|
-| `messages` | `List[BaseMessage]` | Accumulates across agents |
+| `messages` | `List[BaseMessage]` | Decoupled recency window (last 2 turns) |
+| `user_profile` | `dict` | Persistent entity profile (diet, goals, allergies) |
+| `daily_log` | `dict` | Logged meals, completed workouts |
+| `current_topic` | `str` | Detected domain topic (diet, workout, combined) |
 | `steps_today` | `int` | Mobile → Health Connect |
 | `sleep_minutes` | `int` | Mobile → Health Connect |
 | `logged_workouts` | `List[dict]` | Mobile → Health Connect |
