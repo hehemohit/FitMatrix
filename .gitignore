@@ -1,0 +1,17 @@
+# Node / Mobile
+node_modules/
+mobile/android/.gradle/
+mobile/android/app/build/
+mobile/android/build/
+.expo/
+*.log
+
+# Python / Backend
+venv/
+__pycache__/
+*.pyc
+.env
+.pytest_cache/
+
+# Containers & Volumes
+pgdata/
