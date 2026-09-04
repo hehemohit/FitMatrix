@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, AIMessage
 from app.core.config import settings
 from app.graph.workflow import fitmatrix_graph
 
@@ -21,12 +21,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class ChatHistoryItem(BaseModel):
+    role: str  # 'user' | 'coach'
+    text: str
+
 class BiometricPayload(BaseModel):
     user_id: str
     message: str
     steps_today: int = 0
     sleep_minutes: int = 420  # Default 7 hours
     logged_workouts: Optional[List[dict]] = []
+    history: Optional[List[ChatHistoryItem]] = []
+    readiness_score: Optional[int] = None
+    prescribed_workout: Optional[str] = None
 
 @app.get("/health")
 async def health_check():
@@ -35,30 +42,55 @@ async def health_check():
 @app.post("/api/v1/chat")
 async def chat_endpoint(payload: BiometricPayload):
     try:
+        # Reconstruct chat turns so agents have full context of the ongoing conversation
+        messages = []
+        if payload.history:
+            # Keep up to the last 6 turns to maintain focused context without bloating prompt
+            for item in payload.history[-6:]:
+                if item.role == "user":
+                    messages.append(HumanMessage(content=item.text))
+                elif item.role == "coach":
+                    messages.append(AIMessage(content=item.text))
+
+        messages.append(HumanMessage(content=payload.message))
+
         initial_state = {
-            "messages": [HumanMessage(content=payload.message)],
+            "messages": messages,
             "steps_today": payload.steps_today,
             "sleep_minutes": payload.sleep_minutes,
             "logged_workouts": payload.logged_workouts or [],
-            "readiness_score": 0,
+            "readiness_score": payload.readiness_score or 0,
             "fatigue_flag": None,
             "remaining_calories": 2400,
             "remaining_protein_g": 160,
-            "prescribed_workout": None,
+            "prescribed_workout": payload.prescribed_workout,
             "next_step": "supervisor"
         }
 
-        # Run through the multi-agent graph
-        final_state = fitmatrix_graph.invoke(initial_state)
+        # recursion_limit counts total node executions (not just LLM calls).
+        # Full 3-agent path: supervisor→sleep→supervisor→workout→supervisor→diet→supervisor = 7 nodes.
+        # Limit of 10 accommodates this while still preventing true infinite loops.
+        final_state = fitmatrix_graph.invoke(
+            initial_state,
+            config={"recursion_limit": 10}
+        )
 
         # Extract last conversational response
         last_message = final_state["messages"][-1].content if final_state.get("messages") else "Done"
+        if isinstance(last_message, list):
+            text_parts = [part.get("text", "") if isinstance(part, dict) else str(part) for part in last_message]
+            last_message = "".join(text_parts)
+
+        workout = final_state.get("prescribed_workout")
+        if isinstance(workout, list):
+            text_parts = [part.get("text", "") if isinstance(part, dict) else str(part) for part in workout]
+            workout = "".join(text_parts)
 
         return {
             "status": "success",
             "readiness_score": final_state.get("readiness_score"),
             "fatigue_flag": final_state.get("fatigue_flag"),
-            "prescribed_workout": final_state.get("prescribed_workout"),
+            "prescribed_workout": workout,
             "reply": last_message
         }
     except Exception as e:

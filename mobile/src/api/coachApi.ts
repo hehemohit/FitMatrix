@@ -10,7 +10,8 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 30000,
+  // Multi-agent chains (sleep → workout → diet) can take 30-60s on free-tier LLMs.
+  timeout: 90000,
 });
 
 export const sendBiometricsAndMessage = async (

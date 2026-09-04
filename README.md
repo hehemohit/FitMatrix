@@ -1,4 +1,4 @@
-﻿# FitMatrix — Multi-Agent Autonomous Fitness Coach
+# FitMatrix — Multi-Agent Autonomous Fitness Coach
 
 > **An AI-powered, biometric-driven personal training system.** FitMatrix combines a React Native mobile client with a LangGraph multi-agent backend to deliver real-time, data-grounded workout, recovery, and nutrition coaching — personalized to how your body actually performed today.
 
@@ -54,7 +54,7 @@ The user opens the mobile app. Their wearable data (steps, sleep, workouts) is p
 │  └─────────────────────────────┬──────────────────────┘ │
 │                                │ POST /api/v1/chat       │
 └────────────────────────────────┼────────────────────────┘
-                                 │ axios (30s timeout)
+                                 │ axios (90s timeout)
                                  ▼
 ┌─────────────────────────────────────────────────────────┐
 │              Backend (FastAPI + LangGraph)               │
@@ -104,15 +104,16 @@ FitMatrix uses a **Supervisor-Specialist** pattern powered by [LangGraph](https:
 
 ---
 
-### Supervisor Node (`gpt-4o`, `temperature=0`)
+### Supervisor Node (Deterministic & Intent-Aware)
 
-The **Master Orchestrator**. Reads the full shared state and decides which specialist to invoke using structured output (`RouteDecision`).
+The **Master Orchestrator**. Runs pure deterministic routing (zero LLM calls or rate-limit overhead) to prevent routing loops, recursion crashes, and token waste.
 
-**Routing rules:**
-1. `readiness_score == 0` → route to `sleep_agent` first
-2. Workout not yet prescribed → route to `workout_agent`
-3. Diet/nutrition mentioned → route to `diet_agent`
-4. All advice satisfied → `FINISH`
+**Routing logic:**
+1. **Readiness first**: If `readiness_score == 0`, routes to `sleep_agent` immediately.
+2. **Pure Diet Intent** (`veg`, `vegetarian`, `vegan`, `diet`, `meal`, `protein`, `calories`, `paneer`, etc.): Routes directly to `diet_agent` without forcing a workout prescription.
+3. **Pure Workout Intent** (`workout`, `training`, `routine`, `split`, `squat`, `lifts`, etc.): Routes directly to `workout_agent`.
+4. **Combined Intent** (both workout + diet requested): Executes `workout_agent` first, then flows to `diet_agent`.
+5. **General / Day-Planning**: Routes through standard progression and terminates cleanly at `FINISH`.
 
 ---
 
@@ -128,9 +129,9 @@ fatigue_flag = "high_fatigue" if score < 60 else "nominal"
 
 ---
 
-### Workout Agent (`gpt-4o`, `temperature=0.2`)
+### Workout Agent (LLM · `temperature=0.2`)
 
-**Head Strength & Conditioning Coach.** Receives readiness score, fatigue flag, and today's sessions. Returns a `prescribed_workout` in ≤ 2 sentences.
+**Head Strength & Conditioning Coach.** Powered by the LLM Provider Factory (Google Gemini / Groq / OpenAI) with automatic fallback chains. Receives readiness score, fatigue status, and past sessions. Returns a `prescribed_workout` in ≤ 2 sentences.
 
 | Condition | Prescription |
 |---|---|
@@ -139,9 +140,11 @@ fatigue_flag = "high_fatigue" if score < 60 else "nominal"
 
 ---
 
-### Diet Agent (`gpt-4o`, `temperature=0.2`)
+### Diet Agent (LLM · `temperature=0.2`)
 
-**Lead Sports Nutritionist.** Receives the prescribed workout and remaining macro targets. Returns carb/protein timing recommendations in ≤ 3 sentences.
+**Lead Sports Nutritionist.** Powered by the LLM Provider Factory with automatic fallback chains. Receives the workout context, macro targets (calories & protein), and conversation history.
+- **Dietary Restriction Awareness**: Strictly adapts to user preferences and dietary choices (pure vegetarian, vegan, Jain, keto, allergies, fasting).
+- **Multi-Turn Context**: Seamlessly handles follow-up modifications (e.g. pivoting an existing plan when a user specifies *"iam pure veg"*).
 
 ---
 
@@ -153,9 +156,9 @@ fatigue_flag = "high_fatigue" if score < 60 else "nominal"
 |---|---|
 | Framework | React Native 0.87 (TypeScript) |
 | Health Data | `react-native-health-connect` v4.1 |
-| State Management | Zustand v5 |
+| State Management | Zustand v5 + React hooks |
 | Storage | react-native-mmkv |
-| HTTP Client | Axios (30 s timeout) |
+| HTTP Client | Axios (90 s timeout for multi-agent chains) |
 | Native Modules | React Native Nitro Modules |
 
 ### Backend
@@ -164,7 +167,7 @@ fatigue_flag = "high_fatigue" if score < 60 else "nominal"
 |---|---|
 | API Server | FastAPI 0.115+ |
 | Agent Orchestration | LangGraph 0.2+ |
-| LLM Provider | OpenAI GPT-4o via LangChain |
+| LLM Provider | Multi-provider with runtime fallback: Google Gemini (`gemini-3.5-flash-lite`), Groq (`qwen/qwen3.8-27b`), OpenAI (`gpt-4o`) |
 | Database | PostgreSQL 16 + pgvector |
 | Cache / Queue | Redis 7 |
 | Containerization | Docker Compose |
@@ -182,33 +185,34 @@ FitMatrix/
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   └── app/
-│       ├── main.py                 # FastAPI app, CORS, /api/v1/chat endpoint
+│       ├── main.py                 # FastAPI app, CORS, /api/v1/chat endpoint (multi-turn history)
 │       ├── core/
-│       │   └── config.py           # Env-based settings (OpenAI key, DB URLs)
+│       │   ├── config.py           # Env-based settings (DB URLs, ports)
+│       │   └── llm.py              # LLM Provider Factory with auto-fallback (Google → Groq → OpenAI)
 │       ├── graph/
 │       │   ├── state.py            # FitMatrixState TypedDict (shared agent state)
-│       │   ├── supervisor.py       # Supervisor node — routes between agents
+│       │   ├── supervisor.py       # Deterministic intent-aware supervisor router
 │       │   └── workflow.py         # StateGraph wiring and compilation
 │       ├── agents/
 │       │   ├── sleep_agent.py      # Deterministic recovery scoring
-│       │   ├── workout_agent.py    # GPT-4o strength & conditioning prescriptions
-│       │   └── diet_agent.py       # GPT-4o macro timing recommendations
+│       │   ├── workout_agent.py    # Strength & conditioning prescriptions
+│       │   └── diet_agent.py       # Sports nutrition & dietary constraint adaptations
 │       └── tools/
 │           └── fitness_tools.py    # LangChain @tools: evaluate_readiness, calculate_remaining_macros
 │
 └── mobile/
-    ├── App.tsx                     # Root — health sync, chat UI, metric cards
+    ├── App.tsx                     # Root — health sync, chat UI, metric cards, conversation state
     ├── index.js
     ├── android/
     │   └── app/src/main/java/com/fitmatrixmobile/
     │       └── MainActivity.kt     # Registers HealthConnectPermissionDelegate
     └── src/
         ├── api/
-        │   └── coachApi.ts         # Axios client → POST /api/v1/chat
+        │   └── coachApi.ts         # Axios client → POST /api/v1/chat (90s timeout)
         ├── services/
         │   └── healthService.ts    # Health Connect sync (SDK status, permissions, readRecords)
         └── types/
-            └── schema.ts           # BiometricPayload, CoachResponse TypeScript interfaces
+            └── schema.ts           # BiometricPayload, ChatHistoryItem, CoachResponse interfaces
 ```
 
 ---
@@ -224,7 +228,7 @@ FitMatrix/
 | Docker Desktop | Latest |
 | Android SDK | API Level 26+ |
 | Java JDK | 17 |
-| OpenAI API Key | Required |
+| LLM API Key | At least one: Google Gemini, Groq, or OpenAI |
 
 > **Note:** Health Connect is Android-only. iOS support is planned.
 
@@ -261,7 +265,7 @@ pip install -r requirements.txt
 **4. Configure environment**
 
 ```bash
-cp .env.example .env   # then fill in your OPENAI_API_KEY
+cp .env.example .env   # then set your GOOGLE_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY
 ```
 
 **5. Run the server**
@@ -330,10 +334,21 @@ On first launch a permissions dialog will appear for Steps, Sleep Sessions, and 
 `backend/.env`:
 
 ```env
-# Required
-OPENAI_API_KEY=sk-...
+# --- LLM Provider Configuration ---
+# System automatically detects which keys are available and sets up runtime fallbacks.
+# Priority order: Google Gemini → Groq → OpenAI
+DEFAULT_LLM_PROVIDER=gemini   # Pin specific provider: gemini | groq | openai
 
-# Optional (defaults shown)
+# API Keys (at least one required)
+GOOGLE_API_KEY=AIzaSy...      # Recommended free-tier default
+GROQ_API_KEY=gsk_...          # Ultra-low latency alternative
+OPENAI_API_KEY=sk-...         # Standard OpenAI key
+
+# Optional Model Customization
+GEMINI_MODEL=gemini-3.5-flash-lite
+GROQ_MODEL=qwen/qwen3.8-27b
+
+# Server & Infrastructure (defaults shown)
 PROJECT_NAME=FitMatrix AI Engine
 HOST=0.0.0.0
 PORT=8000
@@ -355,16 +370,52 @@ REDIS_URL=redis://localhost:6379/0
 
 ### `POST /api/v1/chat`
 
+Handles both initial coaching consultations and ongoing multi-turn conversational follow-ups.
+
+#### Turn 1: Initial Coaching Consultation
+
 **Request:**
 
 ```json
 {
   "user_id": "usr_dev_1",
-  "message": "What should I train today?",
+  "message": "plan my diet for today",
   "steps_today": 8432,
   "sleep_minutes": 390,
   "logged_workouts": [
     { "type": "37", "duration_min": 45 }
+  ],
+  "history": []
+}
+```
+
+**Response:**
+
+```json
+{
+  "status": "success",
+  "readiness_score": 74,
+  "fatigue_flag": "nominal",
+  "prescribed_workout": "Hit 4x5 back squats at 80% 1RM followed by 3x8 Romanian deadlifts.",
+  "reply": "Prioritize a balanced 2400 kcal intake with 160g protein. Consume complex carbs 90 minutes pre-workout and 40g protein immediately post-session."
+}
+```
+
+#### Turn 2: Multi-Turn Context Follow-Up (e.g. Dietary Constraint)
+
+**Request:**
+
+```json
+{
+  "user_id": "usr_dev_1",
+  "message": "iam pure veg",
+  "steps_today": 8432,
+  "sleep_minutes": 390,
+  "readiness_score": 74,
+  "prescribed_workout": "Hit 4x5 back squats at 80% 1RM followed by 3x8 Romanian deadlifts.",
+  "history": [
+    { "role": "user", "text": "plan my diet for today" },
+    { "role": "coach", "text": "Prioritize a balanced 2400 kcal intake with 160g protein..." }
   ]
 }
 ```
@@ -377,16 +428,17 @@ REDIS_URL=redis://localhost:6379/0
   "readiness_score": 74,
   "fatigue_flag": "nominal",
   "prescribed_workout": "Hit 4x5 back squats at 80% 1RM followed by 3x8 Romanian deadlifts.",
-  "reply": "Pre-load with 60g carbs 90 minutes before your session and target 40g whey protein immediately post-lift."
+  "reply": "Understood! For a 100% pure vegetarian plan, hit your 160g protein using paneer, Greek yogurt, lentils/dal, and whey/tofu. Pair with oats and quinoa for sustained energy."
 }
 ```
 
 | Field | Description |
 |---|---|
-| `readiness_score` | 0–100 recovery score (sleep + steps) |
+| `readiness_score` | 0–100 recovery score computed from biometrics |
 | `fatigue_flag` | `"nominal"` or `"high_fatigue"` |
-| `prescribed_workout` | Training prescription for today |
-| `reply` | Final agent conversational response |
+| `prescribed_workout` | Current training prescription (carried forward across turns) |
+| `reply` | Conversational response from the appropriate domain agent |
+
 
 ---
 
@@ -423,36 +475,42 @@ This call registers the Android `ActivityResultLauncher` contract required by th
 
 ## How the Coaching Pipeline Works
 
+### Scenario 1: Initial Day Planning ("plan my day")
+
 ```
-1. User: "What should I train today?"
+1. User: "plan my day"
+2. App reads Health Connect: { steps: 8432, sleepMinutes: 390, workouts: [...] }
+3. Mobile sends POST /api/v1/chat with biometrics + message
+4. FastAPI initializes FitMatrixState
+5. Supervisor inspects state:
+   - readiness_score == 0 → routes to sleep_agent
+6. sleep_agent (deterministic tool, <1ms):
+   - Computes recovery score: 74/100, fatigue: "nominal"
+7. Supervisor routes to workout_agent:
+   - workout_agent (LLM): Generates 2-sentence targeted strength prescription
+8. Supervisor detects general query → routes to diet_agent:
+   - diet_agent (LLM): Generates pre/post workout nutrition guidance
+9. Supervisor detects all specialists complete → FINISH
+10. Mobile renders readiness card (74), workout banner, and conversational coaching reply
+```
 
-2. App reads healthData: { steps: 8432, sleepMinutes: 390, workouts: [...] }
+### Scenario 2: Follow-up Dietary Modification ("iam pure veg")
 
-3. POST /api/v1/chat with biometrics + message
-
-4. FastAPI builds initial FitMatrixState
-
-5. LangGraph: START → Supervisor
-   readiness_score == 0 → routes to sleep_agent
-
-6. sleep_agent (deterministic):
-   score = floor((390/420) × 80) = 74
-   flag = "nominal"
-   State: { readiness_score: 74, fatigue_flag: "nominal" }
-
-7. sleep_agent → Supervisor
-   No workout prescribed → routes to workout_agent
-
-8. workout_agent (GPT-4o):
-   Input: readiness=74, nominal, sessions=[...]
-   Output: "Hit 4x5 back squats..." → prescribed_workout set
-
-9. workout_agent → Supervisor
-   All requests satisfied → FINISH
-
-10. FastAPI returns last message + state fields → JSON
-
-11. App updates: readiness card, workout banner, chat bubble
+```
+1. User: "iam pure veg"
+2. Mobile passes:
+   - message: "iam pure veg"
+   - history: previous conversation turns
+   - readiness_score: 74, prescribed_workout: "Hit 4x5 back squats..."
+3. Supervisor inspects incoming state:
+   - readiness is already 74 (no re-calculation needed)
+   - latest turn has pure diet intent ("veg")
+   - routes directly to diet_agent (skips workout_agent, avoids topic thrashing)
+4. diet_agent (LLM):
+   - Ingests workout context + conversation history + dietary rule
+   - Adapts plan to vegetarian staples (paneer, lentils, Greek yogurt, whey)
+5. Supervisor detects diet reply complete → FINISH
+6. Mobile displays tailored vegetarian coaching advice seamlessly
 ```
 
 ---

@@ -1,3 +1,8 @@
+export interface ChatHistoryItem {
+  role: 'user' | 'coach';
+  text: string;
+}
+
 export interface BiometricPayload {
   user_id: string;
   message: string;
@@ -7,6 +12,9 @@ export interface BiometricPayload {
     type: string;
     duration_min: number;
   }>;
+  history?: ChatHistoryItem[];
+  readiness_score?: number;
+  prescribed_workout?: string | null;
 }
 
 export interface CoachResponse {

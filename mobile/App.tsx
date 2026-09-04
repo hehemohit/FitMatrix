@@ -55,6 +55,9 @@ export default function App() {
         steps_today: healthData.steps,
         sleep_minutes: healthData.sleepMinutes,
         logged_workouts: healthData.workouts,
+        history: messages.map(m => ({ role: m.sender, text: m.text })),
+        readiness_score: coachState.readiness_score,
+        prescribed_workout: coachState.prescribed_workout,
       });
 
       setCoachState({
@@ -64,10 +67,21 @@ export default function App() {
       });
 
       setMessages(prev => [...prev, { sender: 'coach', text: res.reply }]);
-    } catch (error) {
+    } catch (error: any) {
+      let errorMsg = 'Error connecting to FitMatrix agent backend.';
+      if (error?.code === 'ECONNABORTED' || error?.message?.includes('timeout')) {
+        errorMsg = 'Request timed out — the multi-agent chain is taking longer than expected. Please try again.';
+      } else if (error?.response) {
+        // Server replied with a non-2xx status
+        const detail = error.response.data?.detail;
+        errorMsg = `Server error: ${detail ?? error.response.status}`;
+      } else if (error?.request) {
+        // No response received (network unreachable, adb reverse not set up, etc.)
+        errorMsg = 'Cannot reach backend. Check that the server is running and adb reverse is active.';
+      }
       setMessages(prev => [
         ...prev,
-        { sender: 'coach', text: 'Error connecting to FitMatrix agent backend.' },
+        { sender: 'coach', text: errorMsg },
       ]);
     } finally {
       setLoading(false);
