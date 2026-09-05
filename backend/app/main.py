@@ -5,6 +5,10 @@ from typing import List, Optional
 from langchain_core.messages import HumanMessage, AIMessage
 from app.core.config import settings
 from app.graph.workflow import fitmatrix_graph
+from app.api.schemas import PlanRequest, WorkoutPlanSchema, DietPlanSchema, SleepGoalSchema
+from app.agents.workout_agent import workout_agent_structured
+from app.agents.diet_agent import diet_agent_structured
+from app.agents.sleep_agent import sleep_agent_structured
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -29,7 +33,9 @@ class BiometricPayload(BaseModel):
     user_id: str
     message: str
     steps_today: int = 0
-    sleep_minutes: int = 420  # Default 7 hours
+    sleep_minutes: int = 420       # Default 7 hours
+    active_calories_burned: int = 0
+    resting_heart_rate_bpm: int = 0
     logged_workouts: Optional[List[dict]] = []
     history: Optional[List[ChatHistoryItem]] = []
     readiness_score: Optional[int] = None
@@ -37,9 +43,13 @@ class BiometricPayload(BaseModel):
     user_profile: Optional[dict] = {}
     daily_log: Optional[dict] = {}
 
+# ─── Health Check ─────────────────────────────────────────────────────────────
+
 @app.get("/health")
 async def health_check():
     return {"status": "online", "project": settings.PROJECT_NAME}
+
+# ─── Conversational Chat Endpoint ─────────────────────────────────────────────
 
 @app.post("/api/v1/chat")
 async def chat_endpoint(payload: BiometricPayload):
@@ -60,6 +70,8 @@ async def chat_endpoint(payload: BiometricPayload):
             "messages": messages,
             "steps_today": payload.steps_today,
             "sleep_minutes": payload.sleep_minutes,
+            "active_calories_burned": payload.active_calories_burned,
+            "resting_heart_rate_bpm": payload.resting_heart_rate_bpm,
             "logged_workouts": payload.logged_workouts or [],
             "readiness_score": payload.readiness_score or 0,
             "fatigue_flag": None,
@@ -69,6 +81,9 @@ async def chat_endpoint(payload: BiometricPayload):
             "user_profile": payload.user_profile or {},
             "daily_log": payload.daily_log or {},
             "current_topic": None,
+            "workout_plan": None,
+            "diet_plan": None,
+            "sleep_goal": None,
             "next_step": "supervisor"
         }
 
@@ -103,6 +118,85 @@ async def chat_endpoint(payload: BiometricPayload):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# ─── Structured Plan Endpoints ─────────────────────────────────────────────────
+
+@app.post("/api/v1/plan/workout", response_model=WorkoutPlanSchema)
+async def generate_workout_plan(payload: PlanRequest):
+    """
+    Generates a full structured WorkoutPlan artifact via the workout agent's
+    structured output mode. Separate from /api/v1/chat — fire-once, returns
+    a validated JSON plan that hydrates Plan Studio cards on the mobile client.
+    """
+    try:
+        state = {
+            "user_profile": payload.user_profile or {},
+            "daily_log": payload.daily_log or {},
+            "steps_today": payload.steps_today,
+            "sleep_minutes": payload.sleep_minutes,
+            "active_calories_burned": payload.active_calories_burned,
+            "resting_heart_rate_bpm": payload.resting_heart_rate_bpm,
+            "readiness_score": payload.readiness_score or 0,
+            "fatigue_flag": None,
+            "remaining_calories": 2400,
+            "remaining_protein_g": 160,
+            "prescribed_workout": None,
+            "context_message": payload.context_message,
+        }
+        plan = workout_agent_structured(state)
+        return plan
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/plan/diet", response_model=DietPlanSchema)
+async def generate_diet_plan(payload: PlanRequest):
+    """
+    Generates a full structured DietPlan artifact via the diet agent's
+    structured output mode. Returns validated JSON for Plan Studio.
+    """
+    try:
+        state = {
+            "user_profile": payload.user_profile or {},
+            "daily_log": payload.daily_log or {},
+            "steps_today": payload.steps_today,
+            "sleep_minutes": payload.sleep_minutes,
+            "active_calories_burned": payload.active_calories_burned,
+            "resting_heart_rate_bpm": payload.resting_heart_rate_bpm,
+            "readiness_score": payload.readiness_score or 0,
+            "fatigue_flag": None,
+            "remaining_calories": 2400,
+            "remaining_protein_g": 160,
+            "prescribed_workout": None,
+            "context_message": payload.context_message,
+        }
+        plan = diet_agent_structured(state)
+        return plan
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/plan/sleep", response_model=SleepGoalSchema)
+async def generate_sleep_goal(payload: PlanRequest):
+    """
+    Generates a personalized SleepGoal artifact via the sleep architect's
+    structured output mode. Combines deterministic readiness scoring
+    with LLM-driven sleep window and wind-down prescription.
+    """
+    try:
+        state = {
+            "user_profile": payload.user_profile or {},
+            "steps_today": payload.steps_today,
+            "sleep_minutes": payload.sleep_minutes,
+            "resting_heart_rate_bpm": payload.resting_heart_rate_bpm,
+            "readiness_score": payload.readiness_score or 0,
+            "context_message": payload.context_message,
+        }
+        goal = sleep_agent_structured(state)
+        return goal
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == "__main__":
     import uvicorn

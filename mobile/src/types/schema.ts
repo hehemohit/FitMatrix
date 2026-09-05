@@ -9,6 +9,11 @@ export interface UserProfile {
   fitness_goal?: string;
   target_calories?: number;
   target_protein_g?: number;
+  // Biometrics (stored locally via MMKV, sent to agents as context)
+  weight_kg?: number;
+  height_cm?: number;
+  age?: number;
+  activity_level?: string;
 }
 
 export interface DailyLog {
@@ -23,6 +28,8 @@ export interface BiometricPayload {
   message: string;
   steps_today: number;
   sleep_minutes: number;
+  active_calories_burned?: number;
+  resting_heart_rate_bpm?: number;
   logged_workouts?: Array<{
     type: string;
     duration_min: number;

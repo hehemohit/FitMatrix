@@ -1,185 +1,27 @@
-import React, { useState, useEffect } from 'react';
-import {
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  View,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  ActivityIndicator,
-} from 'react-native';
-import { syncHealthConnectData, HealthSnapshot } from './src/services/healthService';
-import { sendBiometricsAndMessage } from './src/api/coachApi';
-import { CoachResponse, UserProfile, DailyLog } from './src/types/schema';
+/**
+ * App.tsx — FitMatrix Root Shell
+ *
+ * Thin entry point: renders AppNavigator.
+ * All screen logic, state, and Health Connect sync lives in their respective
+ * screen files and the Zustand store.
+ */
+
+import React from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { StyleSheet } from 'react-native';
+import { AppNavigator } from './src/navigation/AppNavigator';
 
 export default function App() {
-  const [healthData, setHealthData] = useState<HealthSnapshot>({
-    steps: 0,
-    sleepMinutes: 420,
-    workouts: [],
-  });
-  const [messages, setMessages] = useState<Array<{ sender: 'user' | 'coach'; text: string }>>([
-    { sender: 'coach', text: 'FitMatrix initialized. How can I guide your training today?' },
-  ]);
-  const [inputText, setInputText] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [coachState, setCoachState] = useState<Partial<CoachResponse>>({
-    readiness_score: 80,
-    fatigue_flag: 'nominal',
-    prescribed_workout: 'Awaiting prompt...',
-  });
-  const [userProfile, setUserProfile] = useState<UserProfile>({});
-  const [dailyLog, setDailyLog] = useState<DailyLog>({});
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      syncHealthConnectData()
-        .then(setHealthData)
-        .catch(err => console.log('Sync err:', err));
-    }, 500);
-
-    return () => clearTimeout(timer);
-  }, []);
-
-  const handleSend = async () => {
-    if (!inputText.trim() || loading) return;
-
-    const userPrompt = inputText.trim();
-    setInputText('');
-    setMessages(prev => [...prev, { sender: 'user', text: userPrompt }]);
-    setLoading(true);
-
-    try {
-      // Decouple State from Chat: Window history to strictly the last 2 turns
-      // All persistent context (dietary preferences, goals) is preserved in user_profile
-      const recentHistory = messages.slice(-2).map(m => ({ role: m.sender, text: m.text }));
-
-      const res = await sendBiometricsAndMessage({
-        user_id: 'usr_dev_1',
-        message: userPrompt,
-        steps_today: healthData.steps,
-        sleep_minutes: healthData.sleepMinutes,
-        logged_workouts: healthData.workouts,
-        history: recentHistory,
-        readiness_score: coachState.readiness_score,
-        prescribed_workout: coachState.prescribed_workout,
-        user_profile: userProfile,
-        daily_log: dailyLog,
-      });
-
-      setCoachState({
-        readiness_score: res.readiness_score,
-        fatigue_flag: res.fatigue_flag,
-        prescribed_workout: res.prescribed_workout,
-      });
-      if (res.user_profile) setUserProfile(res.user_profile);
-      if (res.daily_log) setDailyLog(res.daily_log);
-
-      setMessages(prev => [...prev, { sender: 'coach', text: res.reply }]);
-    } catch (error: any) {
-      let errorMsg = 'Error connecting to FitMatrix agent backend.';
-      if (error?.code === 'ECONNABORTED' || error?.message?.includes('timeout')) {
-        errorMsg = 'Request timed out — the multi-agent chain is taking longer than expected. Please try again.';
-      } else if (error?.response) {
-        // Server replied with a non-2xx status
-        const detail = error.response.data?.detail;
-        errorMsg = `Server error: ${detail ?? error.response.status}`;
-      } else if (error?.request) {
-        // No response received (network unreachable, adb reverse not set up, etc.)
-        errorMsg = 'Cannot reach backend. Check that the server is running and adb reverse is active.';
-      }
-      setMessages(prev => [
-        ...prev,
-        { sender: 'coach', text: errorMsg },
-      ]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>FitMatrix</Text>
-        <Text style={styles.headerSubtitle}>Multi-Agent Autonomous Coach</Text>
-      </View>
-
-      <View style={styles.metricRow}>
-        <View style={styles.card}>
-          <Text style={styles.cardLabel}>Readiness</Text>
-          <Text style={styles.cardValue}>{coachState.readiness_score ?? '--'}/100</Text>
-        </View>
-        <View style={styles.card}>
-          <Text style={styles.cardLabel}>Steps</Text>
-          <Text style={styles.cardValue}>{healthData.steps}</Text>
-        </View>
-        <View style={styles.card}>
-          <Text style={styles.cardLabel}>Sleep</Text>
-          <Text style={styles.cardValue}>
-            {Math.round(healthData.sleepMinutes / 60)}h {healthData.sleepMinutes % 60}m
-          </Text>
-        </View>
-      </View>
-
-      {coachState.prescribed_workout && (
-        <View style={styles.planBanner}>
-          <Text style={styles.planLabel}>Prescribed Focus:</Text>
-          <Text style={styles.planText}>{coachState.prescribed_workout}</Text>
-        </View>
-      )}
-
-      <ScrollView style={styles.chatArea}>
-        {messages.map((m, idx) => (
-          <View
-            key={idx}
-            style={[
-              styles.bubble,
-              m.sender === 'user' ? styles.userBubble : styles.coachBubble,
-            ]}>
-            <Text style={m.sender === 'user' ? styles.userText : styles.coachText}>
-              {m.text}
-            </Text>
-          </View>
-        ))}
-        {loading && <ActivityIndicator size="small" color="#1a73e8" style={{ marginVertical: 8 }} />}
-      </ScrollView>
-
-      <View style={styles.inputBar}>
-        <TextInput
-          style={styles.input}
-          placeholder="Ask workout or diet advice..."
-          value={inputText}
-          onChangeText={setInputText}
-        />
-        <TouchableOpacity style={styles.sendButton} onPress={handleSend}>
-          <Text style={styles.sendButtonText}>Send</Text>
-        </TouchableOpacity>
-      </View>
-    </SafeAreaView>
+    <GestureHandlerRootView style={styles.root}>
+      <SafeAreaProvider>
+        <AppNavigator />
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f9fa' },
-  header: { padding: 16, backgroundColor: '#ffffff', borderBottomWidth: 1, borderColor: '#eee' },
-  headerTitle: { fontSize: 22, fontWeight: 'bold', color: '#1a73e8' },
-  headerSubtitle: { fontSize: 12, color: '#666' },
-  metricRow: { flexDirection: 'row', justifyContent: 'space-between', padding: 12 },
-  card: { flex: 1, backgroundColor: '#fff', margin: 4, padding: 12, borderRadius: 8, elevation: 1 },
-  cardLabel: { fontSize: 11, color: '#666', textTransform: 'uppercase' },
-  cardValue: { fontSize: 16, fontWeight: 'bold', color: '#111', marginTop: 4 },
-  planBanner: { backgroundColor: '#e8f0fe', padding: 12, marginHorizontal: 16, borderRadius: 8 },
-  planLabel: { fontSize: 11, fontWeight: 'bold', color: '#1a73e8' },
-  planText: { fontSize: 13, color: '#333', marginTop: 2 },
-  chatArea: { flex: 1, padding: 16 },
-  bubble: { padding: 12, borderRadius: 10, marginBottom: 10, maxWidth: '85%' },
-  userBubble: { alignSelf: 'flex-end', backgroundColor: '#1a73e8' },
-  coachBubble: { alignSelf: 'flex-start', backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#eee' },
-  userText: { color: '#ffffff', fontSize: 14 },
-  coachText: { color: '#111111', fontSize: 14 },
-  inputBar: { flexDirection: 'row', padding: 12, backgroundColor: '#ffffff' },
-  input: { flex: 1, borderWidth: 1, borderColor: '#ddd', borderRadius: 20, paddingHorizontal: 16, height: 40 },
-  sendButton: { justifyContent: 'center', alignItems: 'center', paddingHorizontal: 16, marginLeft: 8, backgroundColor: '#1a73e8', borderRadius: 20 },
-  sendButtonText: { color: '#ffffff', fontWeight: 'bold' },
+  root: { flex: 1 },
 });

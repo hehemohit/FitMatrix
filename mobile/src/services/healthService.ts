@@ -6,29 +6,38 @@ import {
   getSdkStatus,
   SdkAvailabilityStatus,
 } from 'react-native-health-connect';
+import { FitMatrixHealthMetrics } from '../types/health';
 
 export interface HealthSnapshot {
   steps: number;
   sleepMinutes: number;
+  activeCaloriesBurned: number;
+  restingHeartRateBpm: number;
   workouts: Array<{
     type: string;
     duration_min: number;
   }>;
 }
 
-export const syncHealthConnectData = async (): Promise<HealthSnapshot> => {
-  const fallback: HealthSnapshot = { steps: 0, sleepMinutes: 420, workouts: [] };
+const DEFAULT_SNAPSHOT: HealthSnapshot = {
+  steps: 0,
+  sleepMinutes: 420,
+  activeCaloriesBurned: 0,
+  restingHeartRateBpm: 0,
+  workouts: [],
+};
 
+export const syncHealthConnectData = async (): Promise<HealthSnapshot> => {
   try {
     const status = await getSdkStatus();
     if (status !== SdkAvailabilityStatus.SDK_AVAILABLE) {
       console.warn('Health Connect SDK is not available on this device:', status);
-      return fallback;
+      return DEFAULT_SNAPSHOT;
     }
 
     const isInitialized = await initialize();
     if (!isInitialized) {
-      return fallback;
+      return DEFAULT_SNAPSHOT;
     }
 
     // Check permissions first instead of forcing prompt on cold start
@@ -40,17 +49,21 @@ export const syncHealthConnectData = async (): Promise<HealthSnapshot> => {
           { accessType: 'read', recordType: 'Steps' },
           { accessType: 'read', recordType: 'SleepSession' },
           { accessType: 'read', recordType: 'ExerciseSession' },
+          { accessType: 'read', recordType: 'ActiveCaloriesBurned' },
+          { accessType: 'read', recordType: 'HeartRate' },
         ]);
         granted = await getGrantedPermissions();
       } catch (permError) {
         console.warn('Permission request deferred or dismissed:', permError);
-        return fallback;
+        return DEFAULT_SNAPSHOT;
       }
     }
 
     const hasSteps = granted.some(p => p.recordType === 'Steps');
     const hasSleep = granted.some(p => p.recordType === 'SleepSession');
     const hasExercise = granted.some(p => p.recordType === 'ExerciseSession');
+    const hasCalories = granted.some(p => p.recordType === 'ActiveCaloriesBurned');
+    const hasHeartRate = granted.some(p => p.recordType === 'HeartRate');
 
     const now = new Date();
     const startTime = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
@@ -58,6 +71,8 @@ export const syncHealthConnectData = async (): Promise<HealthSnapshot> => {
 
     let steps = 0;
     let sleepMinutes = 420;
+    let activeCaloriesBurned = 0;
+    let restingHeartRateBpm = 0;
     const workouts: HealthSnapshot['workouts'] = [];
 
     if (hasSteps) {
@@ -94,9 +109,62 @@ export const syncHealthConnectData = async (): Promise<HealthSnapshot> => {
       });
     }
 
-    return { steps, sleepMinutes, workouts };
+    if (hasCalories) {
+      try {
+        const calRecords = await readRecords('ActiveCaloriesBurned', {
+          timeRangeFilter: { operator: 'between', startTime, endTime },
+        });
+        activeCaloriesBurned = calRecords.records.reduce(
+          (acc, curr) => acc + (curr.energy?.inKilocalories ?? 0),
+          0
+        );
+        activeCaloriesBurned = Math.round(activeCaloriesBurned);
+      } catch (err) {
+        console.warn('ActiveCaloriesBurned read failed — degrading gracefully:', err);
+      }
+    }
+
+    if (hasHeartRate) {
+      try {
+        const hrRecords = await readRecords('HeartRate', {
+          timeRangeFilter: { operator: 'between', startTime, endTime },
+        });
+        const allSamples = hrRecords.records.flatMap(r => r.samples ?? []);
+        if (allSamples.length > 0) {
+          // Use the minimum BPM reading as a proxy for resting HR
+          restingHeartRateBpm = Math.round(
+            Math.min(...allSamples.map(s => s.beatsPerMinute ?? Infinity))
+          );
+          if (!isFinite(restingHeartRateBpm)) {
+            restingHeartRateBpm = 0;
+          }
+        }
+      } catch (err) {
+        console.warn('HeartRate read failed — degrading gracefully:', err);
+      }
+    }
+
+    return { steps, sleepMinutes, activeCaloriesBurned, restingHeartRateBpm, workouts };
   } catch (err) {
     console.error('Error in syncHealthConnectData:', err);
-    return fallback;
+    return DEFAULT_SNAPSHOT;
   }
 };
+
+/**
+ * Normalizes a raw HealthSnapshot into the FitMatrixHealthMetrics wire format
+ * used by the backend API payload.
+ */
+export const toHealthMetrics = (
+  userId: string,
+  snapshot: HealthSnapshot
+): FitMatrixHealthMetrics => ({
+  userId,
+  timestamp: new Date().toISOString(),
+  metrics: {
+    steps: snapshot.steps,
+    activeCaloriesBurned: snapshot.activeCaloriesBurned,
+    restingHeartRateBpm: snapshot.restingHeartRateBpm,
+    sleepDurationHours: parseFloat((snapshot.sleepMinutes / 60).toFixed(1)),
+  },
+});
