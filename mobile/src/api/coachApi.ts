@@ -24,6 +24,30 @@ export const sendBiometricsAndMessage = async (
   return response.data;
 };
 
+export interface ReadinessResponse {
+  readiness_score: number;
+  fatigue_flag: string;
+  sleep_hours: number;
+  steps_today: number;
+  active_calories_burned: number;
+  resting_heart_rate_bpm: number;
+}
+
+export const computeReadiness = async (
+  steps_today: number,
+  sleep_minutes: number,
+  active_calories_burned = 0,
+  resting_heart_rate_bpm = 0,
+): Promise<ReadinessResponse> => {
+  const response = await apiClient.post<ReadinessResponse>('/api/v1/readiness', {
+    steps_today,
+    sleep_minutes,
+    active_calories_burned,
+    resting_heart_rate_bpm,
+  });
+  return response.data;
+};
+
 // ─── Structured Plan Generation ───────────────────────────────────────────────
 
 export interface PlanRequest {

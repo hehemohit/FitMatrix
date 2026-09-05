@@ -2,19 +2,21 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 
 interface ReadinessCardProps {
-  score: number;           // 0–100
+  score: number | null;    // null before first sync
   fatigueFlag?: string | null;
   prescribedWorkout?: string | null;
 }
 
 /** Returns hex colour based on readiness tier */
-const scoreColour = (score: number): string => {
-  if (score >= 75) return '#34A853'; // green — go hard
-  if (score >= 50) return '#FBBC04'; // amber — moderate
-  return '#EA4335';                   // red — deload/rest
+const scoreColour = (score: number | null): string => {
+  if (score == null) return '#cccccc';  // grey while loading
+  if (score >= 75) return '#34A853';
+  if (score >= 50) return '#FBBC04';
+  return '#EA4335';
 };
 
-const tierLabel = (score: number): string => {
+const tierLabel = (score: number | null): string => {
+  if (score == null) return 'SYNCING';
   if (score >= 75) return 'READY';
   if (score >= 50) return 'MODERATE';
   return 'RECOVER';
@@ -33,8 +35,10 @@ export const ReadinessCard: React.FC<ReadinessCardProps> = ({
       <View style={styles.row}>
         {/* Circular gauge (simplified arc via border trick) */}
         <View style={[styles.ring, { borderColor: colour }]}>
-          <Text style={[styles.scoreValue, { color: colour }]}>{score}</Text>
-          <Text style={styles.scoreMax}>/100</Text>
+          <Text style={[styles.scoreValue, { color: colour }]}>
+            {score != null ? score : '--'}
+          </Text>
+          <Text style={styles.scoreMax}>{score != null ? '/100' : ''}</Text>
         </View>
 
         <View style={styles.info}>

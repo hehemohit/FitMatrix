@@ -16,7 +16,7 @@ import {
 } from '../types/schema';
 import { WorkoutPlan, DietPlan, SleepGoal } from '../types/plans';
 import { HealthSnapshot } from '../services/healthService';
-import { sendBiometricsAndMessage } from '../api/coachApi';
+import { sendBiometricsAndMessage, computeReadiness } from '../api/coachApi';
 import {
   generateWorkoutPlan,
   generateDietPlan,
@@ -58,6 +58,7 @@ interface TrainerState {
   coachState: Partial<CoachResponse>;
   healthSnapshot: HealthSnapshot | null;
   healthLoading: boolean;
+  readinessLoading: boolean;
   planLoading: boolean;
 
   // ── Persistent (MMKV) ──
@@ -84,9 +85,11 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
     { sender: 'coach', text: 'FitMatrix initialized. How can I guide your training today?' },
   ],
   loading: false,
-  coachState: { readiness_score: 80, fatigue_flag: 'nominal', prescribed_workout: null },
+  // readiness_score starts null — real value computed on first syncHealth()
+  coachState: { readiness_score: null as unknown as number, fatigue_flag: null, prescribed_workout: null },
   healthSnapshot: null,
   healthLoading: false,
+  readinessLoading: false,
   planLoading: false,
 
   // Hydrate persistent state from MMKV on store creation
@@ -96,12 +99,51 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
   dietPlan: hydrate<DietPlan | null>('diet_plan', null),
   sleepGoal: hydrate<SleepGoal | null>('sleep_goal', null),
 
+  // ── _applyReadiness: fires /api/v1/readiness from a fresh snapshot ──
+  // Internal helper — always call after updating healthSnapshot
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  _applyReadiness: async (snapshot: HealthSnapshot) => {
+    set({ readinessLoading: true });
+    try {
+      const result = await computeReadiness(
+        snapshot.steps,
+        snapshot.sleepMinutes,
+        snapshot.activeCaloriesBurned,
+        snapshot.restingHeartRateBpm,
+      );
+      set(state => ({
+        readinessLoading: false,
+        coachState: {
+          ...state.coachState,
+          readiness_score: result.readiness_score,
+          fatigue_flag: result.fatigue_flag,
+        },
+      }));
+    } catch (err) {
+      // Backend unreachable — degrade gracefully, compute locally
+      console.warn('Readiness endpoint unavailable, computing locally:', err);
+      const sleepRatio = Math.min(1.0, snapshot.sleepMinutes / 420.0);
+      let score = Math.round(sleepRatio * 80);
+      if (snapshot.steps > 15000) { score -= 10; }
+      set(state => ({
+        readinessLoading: false,
+        coachState: {
+          ...state.coachState,
+          readiness_score: score,
+          fatigue_flag: score < 60 ? 'high_fatigue' : 'nominal',
+        },
+      }));
+    }
+  },
+
   // ── syncHealth: initial Health Connect read (uses cached result) ──
   syncHealth: async () => {
     set({ healthLoading: true });
     try {
       const snapshot = await getHealthSnapshot();
       set({ healthSnapshot: snapshot, healthLoading: false });
+      // Immediately compute live readiness from real biometrics
+      await (get() as any)._applyReadiness(snapshot);
     } catch (err) {
       console.error('syncHealth failed:', err);
       set({ healthLoading: false });
@@ -114,6 +156,8 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
     try {
       const snapshot = await refreshHealthSnapshot();
       set({ healthSnapshot: snapshot, healthLoading: false });
+      // Immediately compute live readiness from fresh biometrics
+      await (get() as any)._applyReadiness(snapshot);
     } catch (err) {
       console.error('refreshHealth failed:', err);
       set({ healthLoading: false });
