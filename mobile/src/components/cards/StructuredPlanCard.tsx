@@ -72,7 +72,7 @@ interface StructuredPlanCardProps {
 export const StructuredPlanCard: React.FC<StructuredPlanCardProps> = ({ plan, title }) => {
   const renderContent = () => {
     if (isWorkoutPlan(plan)) {
-      return (plan as WorkoutPlan).days.map((day, idx) => (
+      return ((plan as WorkoutPlan).days ?? []).map((day, idx) => (
         <WorkoutCard key={idx} day={day} />
       ));
     }

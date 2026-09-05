@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useTrainerStore } from '../store/useTrainerStore';
@@ -52,7 +53,15 @@ export const PlansStudioScreen: React.FC = () => {
     sleep: 'sleep',
   };
 
-  const handleGenerate = () => generatePlan(tabToType[activeTab]);
+  const handleGenerate = async () => {
+    const success = await generatePlan(tabToType[activeTab]);
+    if (!success) {
+      Alert.alert(
+        'Plan Generation Failed',
+        'Could not generate plan from backend. Make sure the backend server is running and reachable.'
+      );
+    }
+  };
 
   const renderContent = () => {
     if (activeTab === 'workouts') {

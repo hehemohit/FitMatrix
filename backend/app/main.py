@@ -9,6 +9,7 @@ from app.api.schemas import PlanRequest, WorkoutPlanSchema, DietPlanSchema, Slee
 from app.agents.workout_agent import workout_agent_structured
 from app.agents.diet_agent import diet_agent_structured
 from app.agents.sleep_agent import sleep_agent_structured
+from app.tools.fitness_tools import evaluate_readiness
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -48,6 +49,39 @@ class BiometricPayload(BaseModel):
 @app.get("/health")
 async def health_check():
     return {"status": "online", "project": settings.PROJECT_NAME}
+
+# ─── Readiness Computation Endpoint ──────────────────────────────────────────
+
+class ReadinessRequest(BaseModel):
+    steps_today: int = 0
+    sleep_minutes: int = 420
+    active_calories_burned: int = 0
+    resting_heart_rate_bpm: int = 0
+
+class ReadinessResponse(BaseModel):
+    readiness_score: int
+    fatigue_flag: str
+    sleep_hours: float
+    steps_today: int
+    active_calories_burned: int
+    resting_heart_rate_bpm: int
+
+@app.post("/api/v1/readiness", response_model=ReadinessResponse)
+async def compute_readiness_endpoint(payload: ReadinessRequest):
+    recovery = evaluate_readiness.invoke({
+        "sleep_minutes": payload.sleep_minutes,
+        "steps": payload.steps_today,
+        "resting_heart_rate_bpm": payload.resting_heart_rate_bpm,
+        "active_calories_burned": payload.active_calories_burned,
+    })
+    return ReadinessResponse(
+        readiness_score=recovery["readiness_score"],
+        fatigue_flag=recovery["fatigue_flag"],
+        sleep_hours=round(payload.sleep_minutes / 60.0, 1),
+        steps_today=payload.steps_today,
+        active_calories_burned=payload.active_calories_burned,
+        resting_heart_rate_bpm=payload.resting_heart_rate_bpm,
+    )
 
 # ─── Conversational Chat Endpoint ─────────────────────────────────────────────
 

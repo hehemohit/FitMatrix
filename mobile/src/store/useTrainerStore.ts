@@ -70,7 +70,7 @@ interface TrainerState {
 
   // ── Actions ──
   sendMessage: (text: string) => Promise<void>;
-  generatePlan: (type: 'workout' | 'diet' | 'sleep') => Promise<void>;
+  generatePlan: (type: 'workout' | 'diet' | 'sleep') => Promise<boolean>;
   syncHealth: () => Promise<void>;
   refreshHealth: () => Promise<void>;
   setUserProfile: (profile: UserProfile) => void;
@@ -107,7 +107,7 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
     try {
       const result = await computeReadiness(
         snapshot.steps,
-        snapshot.sleepMinutes,
+        snapshot.sleepMinutes > 0 ? snapshot.sleepMinutes : 420,
         snapshot.activeCaloriesBurned,
         snapshot.restingHeartRateBpm,
       );
@@ -120,11 +120,34 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
         },
       }));
     } catch (err) {
-      // Backend unreachable — degrade gracefully, compute locally
+      // Backend unreachable — degrade gracefully, compute dynamically
       console.warn('Readiness endpoint unavailable, computing locally:', err);
-      const sleepRatio = Math.min(1.0, snapshot.sleepMinutes / 420.0);
-      let score = Math.round(sleepRatio * 80);
-      if (snapshot.steps > 15000) { score -= 10; }
+      const sleepMins = snapshot.sleepMinutes || 420;
+      let sleepPts = 35;
+      if (sleepMins < 360) {
+        sleepPts = Math.max(10, Math.round((sleepMins / 360.0) * 35));
+      } else if (sleepMins <= 510) {
+        sleepPts = 35 + Math.round(((sleepMins - 360) / 150.0) * 15);
+      } else {
+        sleepPts = 46;
+      }
+
+      let rhrPts = 22;
+      const rhr = snapshot.restingHeartRateBpm;
+      if (rhr > 0) {
+        if (rhr < 58) rhrPts = 30;
+        else if (rhr <= 68) rhrPts = 26;
+        else if (rhr <= 78) rhrPts = 18;
+        else rhrPts = 10;
+      }
+
+      let actPts = 20;
+      if (snapshot.steps < 2500) actPts = 14;
+      else if (snapshot.steps > 16000) actPts = 8;
+      else if (snapshot.steps > 12000) actPts = 16;
+
+      let score = sleepPts + rhrPts + actPts;
+      score = Math.max(20, Math.min(99, score));
       set(state => ({
         readinessLoading: false,
         coachState: {
@@ -181,7 +204,7 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
         user_id: 'usr_dev_1',
         message: text,
         steps_today: healthSnapshot?.steps ?? 0,
-        sleep_minutes: healthSnapshot?.sleepMinutes ?? 420,
+        sleep_minutes: (healthSnapshot?.sleepMinutes && healthSnapshot.sleepMinutes > 0) ? healthSnapshot.sleepMinutes : 420,
         active_calories_burned: healthSnapshot?.activeCaloriesBurned ?? 0,
         resting_heart_rate_bpm: healthSnapshot?.restingHeartRateBpm ?? 0,
         logged_workouts: healthSnapshot?.workouts ?? [],
@@ -237,7 +260,7 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
     const planPayload = {
       user_id: 'usr_dev_1',
       steps_today: healthSnapshot?.steps ?? 0,
-      sleep_minutes: healthSnapshot?.sleepMinutes ?? 420,
+      sleep_minutes: (healthSnapshot?.sleepMinutes && healthSnapshot.sleepMinutes > 0) ? healthSnapshot.sleepMinutes : 420,
       active_calories_burned: healthSnapshot?.activeCaloriesBurned ?? 0,
       resting_heart_rate_bpm: healthSnapshot?.restingHeartRateBpm ?? 0,
       readiness_score: coachState.readiness_score,
@@ -259,9 +282,11 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
         persist('sleep_goal', goal);
         set({ sleepGoal: goal, planLoading: false });
       }
+      return true;
     } catch (err) {
       console.error(`generatePlan(${type}) failed:`, err);
       set({ planLoading: false });
+      return false;
     }
   },
 

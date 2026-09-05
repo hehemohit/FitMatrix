@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useTrainerStore } from '../store/useTrainerStore';
@@ -25,9 +26,16 @@ export const AgentChatScreen: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AgentMode>('workout');
 
   const handleGeneratePlan = async () => {
-    await generatePlan(activeTab);
-    // Navigate to Plan Studio after plan is generated
-    navigation.navigate('Plans' as never);
+    const success = await generatePlan(activeTab);
+    if (success) {
+      // Navigate to Plan Studio after plan is generated
+      navigation.navigate('Plans' as never);
+    } else {
+      Alert.alert(
+        'Plan Generation Failed',
+        'Could not generate plan from backend. Make sure the backend server is running and reachable.'
+      );
+    }
   };
 
   return (

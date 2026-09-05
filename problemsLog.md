@@ -12,6 +12,8 @@ This document provides an in-depth technical record of all major engineering cha
 4. [Problem 4: Client Request Timeout (30s Axios Limit vs. Multi-Agent Chain Latency)](#problem-4-client-request-timeout-30s-axios-limit-vs-multi-agent-chain-latency)
 5. [Problem 5: Out-of-Context Response on Dietary Follow-up ("iam pure veg")](#problem-5-out-of-context-response-on-dietary-follow-up-iam-pure-veg)
 6. [Problem 6: Naive Full-History Appending ($O(N^2)$ Token Bloat & Amnesia)](#problem-6-naive-full-history-appending-on2-token-bloat--amnesia)
+7. [Problem 7: Android Cleartext Traffic Rejection & Device Network Routing (`AxiosError: Network Error`) — September 6, 2026](#problem-7-android-cleartext-traffic-rejection--device-network-routing-axioserror-network-error--september-6-2026)
+8. [Problem 8: Health Connect Biometric Inaccuracies & Static Fallbacks (Steps Discrepancy, Missing `/api/v1/readiness` Endpoint, & Phantom 7.0h Sleep) — September 6, 2026](#problem-8-health-connect-biometric-inaccuracies--static-fallbacks-steps-discrepancy-missing-apiv1readiness-endpoint--phantom-70h-sleep--september-6-2026)
 
 ---
 
@@ -159,4 +161,80 @@ User Input ──▶ [Deterministic Extractor (<1ms)] ──▶ Updates user_pro
 
 ---
 
+## Problem 7: Android Cleartext Traffic Rejection & Device Network Routing (`AxiosError: Network Error`) — September 6, 2026
+
+### Symptoms
+- When tapping **"Generate Workout Plan"** from the Agent Chat screen or Plans Studio, the action failed with:
+  > `generatePlan(workout) failed: [AxiosError: Network Error]`
+- The conversational chat appeared to respond to prompts, but was actually rendering the local client catch-block fallback message inside a coach bubble (*"Cannot reach backend. Check that the server is running and adb reverse is active"*).
+
+### Root Cause Analysis
+1. **Android 9+ Cleartext Security Policy**:
+   Starting with Android 9 (API 28), all unencrypted `http://` network traffic is disabled by default. In `mobile/android/app/src/main/AndroidManifest.xml`, `<application>` lacked `android:usesCleartextTraffic="true"`. Android's native OkHttp network stack instantly aborted all outgoing `http://` calls with `CLEARTEXT communication to ... not permitted by network security policy`, reported by Axios as a generic `Network Error`.
+2. **Device vs. Emulator IP Routing Mismatch**:
+   In `mobile/src/api/coachApi.ts`, `BASE_URL` was hardcoded to `'http://10.0.2.2:8000'`.
+   - `10.0.2.2` is a virtual router loopback alias specific **only** to the Android Studio Emulator.
+   - When running on a physical Android phone over USB with `adb reverse tcp:8000 tcp:8000`, the phone can only access the host PC via `http://localhost:8000`. Any request directed to `10.0.2.2` failed with no route to host.
+3. **Pydantic to TypeScript Case Mismatch**:
+   Backend endpoints returned Pydantic schemas serialized in `snake_case` (`target_muscle_groups`, `rest_seconds`, `daily_calories`, etc.), whereas frontend components expected `camelCase` (`targetMuscleGroups`, `restSeconds`, `dailyCalories`). Rendering undefined arrays like `day.targetMuscleGroups.map` would subsequently throw runtime errors once data was received.
+
+### Resolution
+1. **Enabled Cleartext HTTP in `AndroidManifest.xml`**:
+   ```xml
+   <application
+     android:name=".MainApplication"
+     android:theme="@style/AppTheme"
+     android:usesCleartextTraffic="true">
+   ```
+2. **Unified `BASE_URL` & Auto-Fallback Interceptor in `coachApi.ts`**:
+   - Defaulted `BASE_URL` to `http://localhost:8000` (compatible with `adb reverse` on physical devices and emulators).
+   - Added an Axios response interceptor that intercepts `ERR_NETWORK` errors and automatically retries with `http://10.0.2.2:8000` (and vice-versa), seamlessly supporting both hardware and emulator setups.
+3. **Structured Plan Normalizers**:
+   Added `normalizeWorkoutPlan`, `normalizeDietPlan`, and `normalizeSleepGoal` in `coachApi.ts` to seamlessly convert Python `snake_case` fields into the `camelCase` objects required by the UI.
+4. **Enhanced UI Failure Feedback**:
+   Updated `AgentChatScreen.tsx` and `PlansStudioScreen.tsx` to display an explicit `Alert.alert` when plan generation fails rather than failing silently.
+
+---
+
+## Problem 8: Health Connect Biometric Inaccuracies & Static Fallbacks (Steps Discrepancy, Missing `/api/v1/readiness` Endpoint, & Phantom 7.0h Sleep) — September 6, 2026
+
+### Symptoms
+- The Home dashboard displayed **6,400 steps** instead of the user's real step count displayed in Google Fit for "Today".
+- The **Readiness Score** was permanently stuck at **`80`** on every launch and sync.
+- The **Sleep** metric tile permanently displayed **`7.0 hrs`**, even when no sleep was recorded or when real sleep hours differed.
+
+### Root Cause Analysis
+1. **Rolling 24-Hour Window & Duplicate Step Accumulation**:
+   In `mobile/src/services/healthService.ts`, step queries computed `startTime` using `now.getTime() - 24 * 60 * 60 * 1000`. Google Fit measures "Today" starting strictly from local calendar midnight (`00:00:00`). The rolling 24-hour window pulled in yesterday afternoon/evening steps and added them to today's steps. Furthermore, raw `readRecords('Steps')` summed overlapping records from multiple data sources (e.g. phone hardware pedometer + Google Fit) without deduplication, inflating the step count.
+2. **Missing `/api/v1/readiness` Endpoint on Backend**:
+   `backend/app/main.py` did not implement an endpoint for `POST /api/v1/readiness`. When the mobile client's `computeReadiness` called the API, it received a `404 Not Found`. This triggered the client-side catch block in `useTrainerStore.ts`:
+   ```typescript
+   const sleepRatio = Math.min(1.0, snapshot.sleepMinutes / 420.0);
+   let score = Math.round(sleepRatio * 80); // 👈 Hardcoded static 80!
+   ```
+   Because `sleepMinutes` was defaulted to 420, `sleepRatio` was `1.0`, pinning the readiness score permanently to 80.
+3. **Defective Permission Request Logic & Hardcoded Sleep Baseline**:
+   - In `healthService.ts`, permission requests were wrapped in `if (!granted || granted.length === 0)`. Because `Steps` had been granted during earlier debugging, `granted.length` was greater than 0, causing the app to **never request the missing `SleepSession` permission** from Android.
+   - `hasSleep` remained `false`, bypassing the sleep query entirely.
+   - `DEFAULT_SNAPSHOT` and `healthService.ts` hardcoded `sleepMinutes: 420`. Because no sleep was queried, `420 / 60` was displayed on the Dashboard as `7.0 hrs` as if it were real data.
+
+### Resolution
+1. **Local Calendar Day Midnight Reset (`startOfToday`)**:
+   In `mobile/src/services/healthService.ts`, anchored `startTimeToday` to local midnight `new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)`. Steps, active calories, and workouts are now strictly bounded to Today.
+2. **Native Deduplication via `aggregateRecord`**:
+   Replaced raw `readRecords` summing with Health Connect's native `aggregateRecord({ recordType: 'Steps', ... })` and `aggregateRecord({ recordType: 'ActiveCaloriesBurned', ... })`. This leverages Android's built-in record deduplication engine to match Google Fit exactly.
+3. **Implemented `/api/v1/readiness` & Multi-Factor Scoring**:
+   - Added `ReadinessRequest`, `ReadinessResponse`, and `@app.post("/api/v1/readiness")` in `backend/app/main.py`.
+   - Upgraded `evaluate_readiness` in `backend/app/tools/fitness_tools.py` with a true 1–100 athletic readiness model:
+     - **Sleep duration:** up to 50 pts (calibrated for 7–8.5h recovery window).
+     - **Resting Heart Rate:** up to 30 pts (rewards lower RHR; penalizes elevated HR).
+     - **Activity balance:** up to 20 pts (penalizes acute overtraining >16k steps or massive calorie debt).
+4. **Proactive Missing Permission Requests & Sleep Query Overhaul**:
+   - The app now compares currently granted permissions against `REQUIRED_PERMISSIONS` and prompts the user if any permission (including `SleepSession`) is missing.
+   - Implemented dual-layer sleep queries: `aggregateRecord` (last 48h) falling back to `readRecords` (last 7 days) to identify the latest completed night's sleep.
+   - Removed the hardcoded `420` default (`sleepMinutes: 0`). When no sleep is recorded in Health Connect, the Dashboard cleanly displays **`--`** instead of a misleading fake `7.0 hrs`, while safely injecting a neutral 7h baseline to background AI agents.
+
+---
+
 *FitMatrix Architecture & Problem Log — Maintained by Antigravity Engineering*
+

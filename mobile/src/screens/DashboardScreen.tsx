@@ -35,7 +35,7 @@ export const DashboardScreen: React.FC = () => {
   const isRefreshing = healthLoading && healthSnapshot !== null;
   const hasRealReadiness = coachState.readiness_score != null;
 
-  const sleepHours = healthSnapshot
+  const sleepHours = healthSnapshot && healthSnapshot.sleepMinutes > 0
     ? (healthSnapshot.sleepMinutes / 60).toFixed(1)
     : '--';
 
@@ -115,7 +115,7 @@ export const DashboardScreen: React.FC = () => {
           <MetricTile
             label="Sleep"
             value={sleepHours}
-            unit="hrs"
+            unit={sleepHours !== '--' ? 'hrs' : ''}
             icon="🌙"
             accent="#9C27B0"
           />

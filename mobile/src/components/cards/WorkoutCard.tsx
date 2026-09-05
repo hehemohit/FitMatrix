@@ -18,24 +18,29 @@ const ExerciseRow: React.FC<{ exercise: Exercise }> = ({ exercise }) => (
   </View>
 );
 
-export const WorkoutCard: React.FC<WorkoutCardProps> = ({ day }) => (
-  <View style={styles.card}>
-    <View style={styles.header}>
-      <Text style={styles.day}>{day.day}</Text>
-      <View style={styles.muscleGroup}>
-        {day.targetMuscleGroups.map(group => (
-          <View key={group} style={styles.chip}>
-            <Text style={styles.chipText}>{group}</Text>
-          </View>
-        ))}
+export const WorkoutCard: React.FC<WorkoutCardProps> = ({ day }) => {
+  const muscleGroups = day.targetMuscleGroups ?? (day as any).target_muscle_groups ?? [];
+  const exercises = day.exercises ?? [];
+
+  return (
+    <View style={styles.card}>
+      <View style={styles.header}>
+        <Text style={styles.day}>{day.day}</Text>
+        <View style={styles.muscleGroup}>
+          {muscleGroups.map(group => (
+            <View key={group} style={styles.chip}>
+              <Text style={styles.chipText}>{group}</Text>
+            </View>
+          ))}
+        </View>
       </View>
+      <View style={styles.divider} />
+      {exercises.map((ex, idx) => (
+        <ExerciseRow key={`${ex.name}-${idx}`} exercise={ex} />
+      ))}
     </View>
-    <View style={styles.divider} />
-    {day.exercises.map((ex, idx) => (
-      <ExerciseRow key={`${ex.name}-${idx}`} exercise={ex} />
-    ))}
-  </View>
-);
+  );
+};
 
 const styles = StyleSheet.create({
   card: {
