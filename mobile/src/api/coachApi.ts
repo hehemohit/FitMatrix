@@ -2,9 +2,14 @@ import axios from 'axios';
 import { BiometricPayload, CoachResponse } from '../types/schema';
 import { WorkoutPlan, DietPlan, SleepGoal } from '../types/plans';
 
-// 'http://localhost:8000' for physical USB device with adb reverse (or emulator with adb reverse)
-// 'http://10.0.2.2:8000' for Android Emulator without adb reverse
-export const BASE_URL = 'http://localhost:8000';
+// Set your deployed Render URL here once created:
+// e.g. 'https://fitmatrix-backend.onrender.com'
+export const RENDER_BACKEND_URL = '';
+
+// When RENDER_BACKEND_URL is set, it will connect directly over HTTPS without adb reverse
+export const BASE_URL = RENDER_BACKEND_URL.trim().length > 0 
+  ? RENDER_BACKEND_URL 
+  : 'http://localhost:8000';
 
 export const apiClient = axios.create({
   baseURL: BASE_URL,
