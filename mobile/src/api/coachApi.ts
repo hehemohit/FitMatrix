@@ -4,7 +4,7 @@ import { WorkoutPlan, DietPlan, SleepGoal } from '../types/plans';
 
 // Set your deployed Render URL here once created:
 // e.g. 'https://fitmatrix-backend.onrender.com'
-export const RENDER_BACKEND_URL = '';
+export const RENDER_BACKEND_URL = 'https://fitmatrix-backend-edf2.onrender.com';
 
 // When RENDER_BACKEND_URL is set, it will connect directly over HTTPS without adb reverse
 export const BASE_URL = RENDER_BACKEND_URL.trim().length > 0 
