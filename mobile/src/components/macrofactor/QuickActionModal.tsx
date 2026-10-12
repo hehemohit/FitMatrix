@@ -45,8 +45,8 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
                   <Text style={styles.actionEmoji}>🍎</Text>
                 </View>
                 <View style={styles.actionTextCol}>
-                  <Text style={styles.actionLabel}>Log Food</Text>
-                  <Text style={styles.actionDesc}>AI estimate or quick macro entry</Text>
+                  <Text style={styles.actionLabel}>Log Food & Macros</Text>
+                  <Text style={styles.actionDesc}>Photo Vision, Barcode, or AI estimate</Text>
                 </View>
                 <Text style={styles.chevron}>›</Text>
               </TouchableOpacity>

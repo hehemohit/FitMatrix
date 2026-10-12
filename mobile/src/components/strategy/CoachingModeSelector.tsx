@@ -1,18 +1,14 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
+  Animated,
 } from 'react-native';
 import { colors } from '../../theme/colors';
 import { CoachingMode } from '../../types/schema';
-
-import { LayoutAnimation, Platform, UIManager } from 'react-native';
-
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
+import { AnimatedSegmentedControl, SegmentOption } from './AnimatedSegmentedControl';
 
 interface ModeDetail {
   key: CoachingMode;
@@ -62,21 +58,49 @@ const MODES: ModeDetail[] = [
   },
 ];
 
+const MODE_OPTIONS: SegmentOption<CoachingMode>[] = [
+  { key: 'coached', label: 'Coached' },
+  { key: 'collaborative', label: 'Collaborative' },
+  { key: 'manual', label: 'Manual' },
+];
+
 interface CoachingModeSelectorProps {
   currentMode: CoachingMode;
   onSelectMode: (mode: CoachingMode) => void;
   onOpenManualEditor?: () => void;
+  loading?: boolean;
 }
 
 export const CoachingModeSelector: React.FC<CoachingModeSelectorProps> = ({
   currentMode,
   onSelectMode,
   onOpenManualEditor,
+  loading = false,
 }) => {
   const activeDetail = MODES.find(m => m.key === currentMode) || MODES[0];
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const [isTransitioning, setIsTransitioning] = React.useState(false);
+
+  // Sync transition state when loading finishes
+  React.useEffect(() => {
+    if (!loading && isTransitioning) {
+      setIsTransitioning(false);
+    }
+  }, [loading]);
+
+  const isBusy = loading || isTransitioning;
 
   const handleSelect = (mode: CoachingMode) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if (mode === currentMode || isBusy) return;
+    setIsTransitioning(true);
+    Animated.sequence([
+      Animated.timing(fadeAnim, { toValue: 0.25, duration: 80, useNativeDriver: true }),
+      Animated.timing(fadeAnim, { toValue: 1, duration: 180, useNativeDriver: true }),
+    ]).start(({ finished }) => {
+      if (finished && !loading) {
+        setIsTransitioning(false);
+      }
+    });
     onSelectMode(mode);
   };
 
@@ -87,39 +111,29 @@ export const CoachingModeSelector: React.FC<CoachingModeSelectorProps> = ({
           <Text style={styles.superTitle}>COACHING INTELLIGENCE</Text>
           <Text style={styles.title}>Program Mode</Text>
         </View>
-        <View style={[styles.activeBadge, { backgroundColor: activeDetail.badgeColor + '22' }]}>
+        <Animated.View
+          style={[
+            styles.activeBadge,
+            { backgroundColor: activeDetail.badgeColor + '22', opacity: fadeAnim },
+          ]}
+        >
           <Text style={[styles.activeBadgeText, { color: activeDetail.badgeColor }]}>
             {activeDetail.badge}
           </Text>
-        </View>
+        </Animated.View>
       </View>
 
-      {/* 3-Mode Segmented Selector */}
-      <View style={styles.segmentContainer}>
-        {MODES.map(mode => {
-          const isSelected = mode.key === currentMode;
-          return (
-            <TouchableOpacity
-              key={mode.key}
-              style={[styles.segmentBtn, isSelected && styles.segmentBtnActive]}
-              onPress={() => handleSelect(mode.key)}
-              activeOpacity={0.7}
-            >
-              <Text
-                style={[
-                  styles.segmentText,
-                  isSelected && styles.segmentTextActive,
-                ]}
-              >
-                {mode.title}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+      {/* 3-Mode Hardware-Accelerated Sliding Pill Segmented Selector */}
+      <AnimatedSegmentedControl
+        options={MODE_OPTIONS}
+        selectedKey={currentMode}
+        onSelect={handleSelect}
+        disabled={isBusy}
+        style={{ marginBottom: 14 }}
+      />
 
-      {/* Active Mode Operational Details */}
-      <View style={styles.detailBox}>
+      {/* Active Mode Operational Details with Smooth Cross-Fade */}
+      <Animated.View style={[styles.detailBox, { opacity: fadeAnim }]}>
         <Text style={styles.detailTagline}>{activeDetail.tagline}</Text>
 
         <View style={styles.featuresList}>
@@ -141,7 +155,7 @@ export const CoachingModeSelector: React.FC<CoachingModeSelectorProps> = ({
             <Text style={styles.manualActionText}>Configure Manual Daily Targets</Text>
           </TouchableOpacity>
         )}
-      </View>
+      </Animated.View>
     </View>
   );
 };
@@ -183,32 +197,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 0.5,
-  },
-  segmentContainer: {
-    flexDirection: 'row',
-    backgroundColor: colors.cardHeader,
-    borderRadius: 14,
-    padding: 4,
-    marginBottom: 14,
-    gap: 4,
-  },
-  segmentBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  segmentBtnActive: {
-    backgroundColor: colors.textPrimary,
-  },
-  segmentText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.textSecondary,
-  },
-  segmentTextActive: {
-    color: colors.textDark,
   },
   detailBox: {
     backgroundColor: colors.cardHeader + '55',

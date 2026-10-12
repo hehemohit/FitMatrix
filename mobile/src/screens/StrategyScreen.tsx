@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   ScrollView,
   View,
@@ -7,6 +7,7 @@ import {
   StyleSheet,
   StatusBar,
   ActivityIndicator,
+  Animated,
 } from 'react-native';
 import { useSafeTopInset } from '../hooks/useSafeTopInset';
 import { useTrainerStore } from '../store/useTrainerStore';
@@ -39,9 +40,17 @@ export const StrategyScreen: React.FC = () => {
     setCheckInModalVisible,
   } = useTrainerStore();
 
+  const summaryFadeAnim = useRef(new Animated.Value(1)).current;
+  const chartAnim = useRef(new Animated.Value(0)).current;
+
   useEffect(() => {
     fetchStrategyProfile();
-  }, [fetchStrategyProfile]);
+    Animated.timing(chartAnim, {
+      toValue: 1,
+      duration: 550,
+      useNativeDriver: false,
+    }).start();
+  }, [fetchStrategyProfile, chartAnim]);
 
   const tdee = strategyProfile?.current_expenditure_tdee ?? 2640;
   const trendDelta = strategyProfile?.expenditure_trend_delta ?? 65;
@@ -49,6 +58,13 @@ export const StrategyScreen: React.FC = () => {
   const targetProtein = strategyProfile?.target_protein_g ?? 160;
   const targetCarbs = strategyProfile?.target_carbs_g ?? 250;
   const targetFats = strategyProfile?.target_fats_g ?? 70;
+
+  useEffect(() => {
+    Animated.sequence([
+      Animated.timing(summaryFadeAnim, { toValue: 0.35, duration: 60, useNativeDriver: true }),
+      Animated.timing(summaryFadeAnim, { toValue: 1, duration: 180, useNativeDriver: true }),
+    ]).start();
+  }, [targetCals, targetProtein, targetCarbs, targetFats, summaryFadeAnim]);
 
   const history = strategyProfile?.expenditure_history_14d ?? [
     2520, 2530, 2550, 2570, 2560, 2580, 2600, 2610, 2590, 2620, 2635, 2640, 2645, 2640
@@ -110,13 +126,17 @@ export const StrategyScreen: React.FC = () => {
             {history.map((val, i) => {
               const normalizedHeight = 24 + ((val - minExp) / expRange) * 50;
               const isLatest = i === history.length - 1;
+              const barHeight = chartAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [12, normalizedHeight],
+              });
               return (
-                <View
+                <Animated.View
                   key={i}
                   style={[
                     styles.chartBar,
                     {
-                      height: normalizedHeight,
+                      height: barHeight,
                       backgroundColor: isLatest ? colors.accentGreen : colors.accentBlue,
                       opacity: isLatest ? 1.0 : 0.65 + (i / history.length) * 0.35,
                     },
@@ -147,6 +167,7 @@ export const StrategyScreen: React.FC = () => {
           currentMode={strategyProfile?.coaching_mode ?? 'coached'}
           onSelectMode={mode => setCoachingMode(mode)}
           onOpenManualEditor={() => setManualEditorVisible(true)}
+          loading={strategyLoading}
         />
 
         {/* 4. Macro Program Customization (Diet Style & Protein Density) */}
@@ -154,6 +175,7 @@ export const StrategyScreen: React.FC = () => {
           currentDietStyle={strategyProfile?.diet_style ?? 'balanced'}
           currentProteinPref={strategyProfile?.protein_preference ?? 'moderate'}
           coachingMode={strategyProfile?.coaching_mode ?? 'coached'}
+          loading={strategyLoading}
           onSelectDietStyle={style => {
             setDietStyle({
               diet_style: style,
@@ -179,6 +201,7 @@ export const StrategyScreen: React.FC = () => {
           baselineProtein={targetProtein}
           baselineCarbs={targetCarbs}
           baselineFats={targetFats}
+          loading={strategyLoading}
           onToggleVariation={enabled => {
             setDietStyle({
               diet_style: strategyProfile?.diet_style ?? 'balanced',
@@ -192,7 +215,7 @@ export const StrategyScreen: React.FC = () => {
         />
 
         {/* 6. Program Targets Summary Card */}
-        <View style={styles.targetsCard}>
+        <Animated.View style={[styles.targetsCard, { opacity: summaryFadeAnim }]}>
           <View style={styles.targetsHeaderRow}>
             <View>
               <Text style={styles.targetsTitle}>Program Targets Summary</Text>
@@ -238,7 +261,7 @@ export const StrategyScreen: React.FC = () => {
             </View>
             <Text style={styles.targetValue}>{targetFats}g</Text>
           </View>
-        </View>
+        </Animated.View>
 
         {/* Weekly Companion Check-In Banner */}
         <View style={styles.checkInCard}>

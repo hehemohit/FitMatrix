@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
+  Animated,
 } from 'react-native';
 import { colors } from '../../theme/colors';
 import { DayMacroTarget } from '../../types/schema';
+import { AnimatedSegmentedControl, SegmentOption } from './AnimatedSegmentedControl';
 
 interface MacroCyclingScheduleProps {
   useDayVariation: boolean;
@@ -17,6 +19,7 @@ interface MacroCyclingScheduleProps {
   baselineFats: number;
   onToggleVariation: (enabled: boolean) => void;
   onUpdateSchedule: (newSchedule: DayMacroTarget[]) => void;
+  loading?: boolean;
 }
 
 const DAY_LABELS: Record<string, string> = {
@@ -29,6 +32,11 @@ const DAY_LABELS: Record<string, string> = {
   sun: 'SUN',
 };
 
+const VARIATION_OPTIONS: SegmentOption<'equal' | 'cycling'>[] = [
+  { key: 'equal', label: 'Equal', icon: '⚖️' },
+  { key: 'cycling', label: 'Cycling', icon: '⚡' },
+];
+
 export const MacroCyclingSchedule: React.FC<MacroCyclingScheduleProps> = ({
   useDayVariation,
   scheduleTargets,
@@ -38,8 +46,26 @@ export const MacroCyclingSchedule: React.FC<MacroCyclingScheduleProps> = ({
   baselineFats,
   onToggleVariation,
   onUpdateSchedule,
+  loading = false,
 }) => {
   const [selectedDayIndex, setSelectedDayIndex] = useState<number>(0);
+  const [isTransitioning, setIsTransitioning] = useState<boolean>(false);
+
+  // Animated values for inspection card cross-fade and slide
+  const inspectFadeAnim = useRef(new Animated.Value(1)).current;
+  const inspectSlideAnim = useRef(new Animated.Value(0)).current;
+
+  // Scale bounce animation for day pill tap
+  const pillScaleAnim = useRef(new Animated.Value(1)).current;
+
+  // Sync transition state when external loading changes
+  useEffect(() => {
+    if (!loading && isTransitioning) {
+      setIsTransitioning(false);
+    }
+  }, [loading]);
+
+  const isBusy = loading || isTransitioning;
 
   // Fallback 7-day schedule if empty
   const days: DayMacroTarget[] =
@@ -56,8 +82,55 @@ export const MacroCyclingSchedule: React.FC<MacroCyclingScheduleProps> = ({
 
   const activeDay = days[selectedDayIndex] || days[0];
 
+  const triggerInspectTransition = () => {
+    inspectFadeAnim.setValue(0.3);
+    inspectSlideAnim.setValue(4);
+    Animated.parallel([
+      Animated.timing(inspectFadeAnim, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+      Animated.timing(inspectSlideAnim, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const handleSelectDay = (idx: number) => {
+    if (isBusy) return;
+    if (idx === selectedDayIndex) {
+      if (useDayVariation) {
+        handleToggleDayType(idx);
+      }
+      return;
+    }
+
+    Animated.sequence([
+      Animated.timing(pillScaleAnim, { toValue: 0.95, duration: 60, useNativeDriver: true }),
+      Animated.spring(pillScaleAnim, { toValue: 1, tension: 120, friction: 7, useNativeDriver: true }),
+    ]).start();
+
+    setSelectedDayIndex(idx);
+    triggerInspectTransition();
+  };
+
+  const handleToggleVariation = (mode: 'equal' | 'cycling') => {
+    const nextEnabled = mode === 'cycling';
+    if (nextEnabled === useDayVariation || isBusy) return;
+
+    setIsTransitioning(true);
+    triggerInspectTransition();
+    onToggleVariation(nextEnabled);
+  };
+
   const handleToggleDayType = (index: number) => {
-    if (!useDayVariation) return;
+    if (!useDayVariation || isBusy) return;
+
+    setIsTransitioning(true);
+    triggerInspectTransition();
 
     const nextDays = [...days];
     const targetDay = { ...nextDays[index] };
@@ -103,27 +176,14 @@ export const MacroCyclingSchedule: React.FC<MacroCyclingScheduleProps> = ({
           <Text style={styles.title}>Day-to-Day Cycling</Text>
         </View>
 
-        {/* Toggle Pill */}
-        <View style={styles.togglePillContainer}>
-          <TouchableOpacity
-            style={[styles.toggleOption, !useDayVariation && styles.toggleOptionActive]}
-            onPress={() => onToggleVariation(false)}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.toggleOptionText, !useDayVariation && styles.toggleOptionTextActive]}>
-              Equal
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.toggleOption, useDayVariation && styles.toggleOptionActive]}
-            onPress={() => onToggleVariation(true)}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.toggleOptionText, useDayVariation && styles.toggleOptionTextActive]}>
-              Cycling
-            </Text>
-          </TouchableOpacity>
-        </View>
+        {/* 2-Mode Hardware-Accelerated Sliding Pill Segmented Selector */}
+        <AnimatedSegmentedControl
+          options={VARIATION_OPTIONS}
+          selectedKey={useDayVariation ? 'cycling' : 'equal'}
+          onSelect={handleToggleVariation}
+          disabled={isBusy}
+          style={styles.variationSegmentedControl}
+        />
       </View>
 
       <Text style={styles.sectionSubtitle}>
@@ -133,7 +193,7 @@ export const MacroCyclingSchedule: React.FC<MacroCyclingScheduleProps> = ({
       </Text>
 
       {/* 7-Day Pill Row */}
-      <View style={styles.daysRow}>
+      <View style={styles.daysRow} pointerEvents={isBusy ? 'none' : 'auto'}>
         {days.map((item, idx) => {
           const isSelected = selectedDayIndex === idx;
           const label = DAY_LABELS[item.day.toLowerCase()] || item.day.toUpperCase();
@@ -144,13 +204,10 @@ export const MacroCyclingSchedule: React.FC<MacroCyclingScheduleProps> = ({
               style={[
                 styles.dayPill,
                 isSelected && styles.dayPillSelected,
+                isBusy && styles.dayPillDisabled,
               ]}
-              onPress={() => {
-                setSelectedDayIndex(idx);
-                if (useDayVariation && selectedDayIndex === idx) {
-                  handleToggleDayType(idx);
-                }
-              }}
+              onPress={() => handleSelectDay(idx)}
+              disabled={isBusy}
               activeOpacity={0.7}
             >
               <Text style={[styles.dayLabel, isSelected && styles.dayLabelSelected]}>
@@ -193,16 +250,25 @@ export const MacroCyclingSchedule: React.FC<MacroCyclingScheduleProps> = ({
         })}
       </View>
 
-      {/* Detailed Single Day Inspection Card */}
-      <View style={styles.inspectionCard}>
+      {/* Detailed Single Day Inspection Card with Smooth Animated Cross-Fade & Slide */}
+      <Animated.View
+        style={[
+          styles.inspectionCard,
+          {
+            opacity: inspectFadeAnim,
+            transform: [{ translateY: inspectSlideAnim }],
+          },
+        ]}
+      >
         <View style={styles.inspectionHeader}>
           <Text style={styles.inspectionDayTitle}>
             {DAY_LABELS[activeDay.day.toLowerCase()]} TARGETS
           </Text>
           {useDayVariation && (
             <TouchableOpacity
-              style={styles.toggleDayTypeBtn}
+              style={[styles.toggleDayTypeBtn, isBusy && styles.toggleDayTypeBtnDisabled]}
               onPress={() => handleToggleDayType(selectedDayIndex)}
+              disabled={isBusy}
               activeOpacity={0.8}
             >
               <Text style={styles.toggleDayTypeBtnText}>
@@ -242,7 +308,7 @@ export const MacroCyclingSchedule: React.FC<MacroCyclingScheduleProps> = ({
             <Text style={styles.metricVal}>{activeDay.fats_g} <Text style={styles.unitText}>g</Text></Text>
           </View>
         </View>
-      </View>
+      </Animated.View>
     </View>
   );
 };
@@ -275,27 +341,10 @@ const styles = StyleSheet.create({
     letterSpacing: -0.4,
     marginTop: 2,
   },
-  togglePillContainer: {
-    flexDirection: 'row',
-    backgroundColor: colors.cardHeader,
-    borderRadius: 10,
-    padding: 3,
-  },
-  toggleOption: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-  },
-  toggleOptionActive: {
-    backgroundColor: colors.textPrimary,
-  },
-  toggleOptionText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.textSecondary,
-  },
-  toggleOptionTextActive: {
-    color: colors.textDark,
+  variationSegmentedControl: {
+    marginBottom: 0,
+    width: 170,
+    height: 38,
   },
   sectionSubtitle: {
     fontSize: 12,
@@ -322,6 +371,13 @@ const styles = StyleSheet.create({
   dayPillSelected: {
     borderColor: colors.textPrimary,
     backgroundColor: colors.cardHeader,
+    shadowColor: colors.textPrimary,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+  },
+  dayPillDisabled: {
+    opacity: 0.7,
   },
   dayLabel: {
     fontSize: 11,
@@ -380,6 +436,9 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     borderWidth: 1,
     borderColor: colors.borderSubtle,
+  },
+  toggleDayTypeBtnDisabled: {
+    opacity: 0.5,
   },
   toggleDayTypeBtnText: {
     fontSize: 11,

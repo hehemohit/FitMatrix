@@ -236,6 +236,79 @@ export const estimateMealMacros = async (
   return data;
 };
 
+// ─── Barcode & Vision Scanner API ─────────────────────────────────────────────
+
+export interface BarcodeProduct {
+  status: 'found' | 'not_found';
+  source?: 'custom_database' | 'open_food_facts';
+  barcode: string;
+  product_name?: string;
+  brand?: string;
+  serving_size?: string;
+  serving_size_g?: number;
+  calories?: number;
+  protein_g?: number;
+  carbs_g?: number;
+  fats_g?: number;
+  image_url?: string;
+  message?: string;
+}
+
+export interface CustomBarcodePayload {
+  barcode: string;
+  product_name: string;
+  brand?: string;
+  serving_size?: string;
+  serving_size_g?: number;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fats_g: number;
+  image_url?: string;
+  user_id?: string;
+}
+
+export interface VisionIngredientItem {
+  name: string;
+  portion_g: number;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fats_g: number;
+}
+
+export interface VisionEstimateResponse {
+  dish_name: string;
+  total_calories: number;
+  total_protein_g: number;
+  total_carbs_g: number;
+  total_fats_g: number;
+  confidence: 'high' | 'medium' | 'low';
+  reasoning_note: string;
+  items: VisionIngredientItem[];
+}
+
+export const fetchBarcodeNutrition = async (barcode: string): Promise<BarcodeProduct> => {
+  const { data } = await apiClient.get<BarcodeProduct>(`/api/v1/nutrition/barcode/${encodeURIComponent(barcode)}`);
+  return data;
+};
+
+export const saveCustomBarcodeToServer = async (payload: CustomBarcodePayload): Promise<{ status: string; barcode: string }> => {
+  const { data } = await apiClient.post<{ status: string; barcode: string }>('/api/v1/nutrition/barcode/custom', payload);
+  return data;
+};
+
+export const estimateVisionMealMacros = async (
+  imageBase64: string,
+  mealHint?: string,
+): Promise<VisionEstimateResponse> => {
+  const { data } = await apiClient.post<VisionEstimateResponse>('/api/v1/nutrition/vision-estimate', {
+    image_base64: imageBase64,
+    meal_hint: mealHint,
+  });
+  return data;
+};
+
 // ─── Profile Sync to MongoDB Atlas ───────────────────────────────────────────
 
 export interface ProfileSyncResponse {

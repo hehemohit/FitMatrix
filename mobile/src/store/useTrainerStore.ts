@@ -467,6 +467,14 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
     persist('food_log_history', currentFoodHistory);
     persist('food_log_stat', newFoodStat);
 
+    // Record to smart frequent foods tracker
+    try {
+      const { recordLoggedFood } = require('../services/nutritionOfflineStorage');
+      recordLoggedFood(meal);
+    } catch (e) {
+      // safe fallback
+    }
+
     set({
       dailyLog: updatedLog,
       todayMeals: updatedMeals,
@@ -662,6 +670,7 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
   },
 
   setCoachingMode: async (mode: CoachingMode) => {
+    set({ strategyLoading: true });
     const cur = get().strategyProfile;
     if (cur) {
       const optimistic = { ...cur, coaching_mode: mode };
@@ -673,6 +682,8 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
       set({ strategyProfile: updated });
     } catch (err) {
       console.warn('[setCoachingMode] Error updating coaching mode:', err);
+    } finally {
+      set({ strategyLoading: false });
     }
   },
 
@@ -701,6 +712,7 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
   },
 
   setScheduleTargets: async (schedule: DayMacroTarget[]) => {
+    set({ strategyLoading: true });
     const cur = get().strategyProfile;
     if (cur) {
       const optimistic = { ...cur, schedule_targets: schedule };
@@ -712,6 +724,8 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
       set({ strategyProfile: updated });
     } catch (err) {
       console.warn('[setScheduleTargets] Failed to update schedule:', err);
+    } finally {
+      set({ strategyLoading: false });
     }
   },
 

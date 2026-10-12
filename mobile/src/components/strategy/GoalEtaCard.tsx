@@ -5,13 +5,14 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  LayoutAnimation,
   Platform,
   UIManager,
+  Animated,
 } from 'react-native';
 import { colors } from '../../theme/colors';
 import { GoalType, StrategyProfile } from '../../types/schema';
 import { useTrainerStore } from '../../store/useTrainerStore';
+import { AnimatedSegmentedControl, SegmentOption } from './AnimatedSegmentedControl';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -27,7 +28,7 @@ interface GoalEtaCardProps {
   loading?: boolean;
 }
 
-const GOAL_OPTIONS: Array<{ key: GoalType; label: string; icon: string }> = [
+const GOAL_OPTIONS: SegmentOption<GoalType>[] = [
   { key: 'fat_loss', label: 'Fat Loss', icon: '🔥' },
   { key: 'maintenance', label: 'Maintain', icon: '⚖️' },
   { key: 'muscle_gain', label: 'Muscle Gain', icon: '⚡' },
@@ -44,18 +45,34 @@ export const GoalEtaCard: React.FC<GoalEtaCardProps> = ({
   const [selectedGoal, setSelectedGoal] = useState<GoalType>(profile?.goal_type ?? 'fat_loss');
   const [targetWeight, setTargetWeight] = useState<number>(profile?.target_weight_kg ?? (currentWeight - 4.0));
   const [ratePercent, setRatePercent] = useState<number>(profile?.weekly_rate_percent ?? -0.75);
+  const [isTransitioning, setIsTransitioning] = useState<boolean>(false);
 
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isInteractingRef = useRef<boolean>(false);
 
+  // Smooth accordion animation for Weekly Rate card
+  const rateAnim = useRef(new Animated.Value(profile?.goal_type === 'maintenance' ? 0 : 1)).current;
+  // Subtle cross-fade for metric transitions
+  const cardContentAnim = useRef(new Animated.Value(1)).current;
+
   // Synchronize when remote profile updates, unless user is actively tapping
   useEffect(() => {
+    if (!loading && isTransitioning) {
+      setIsTransitioning(false);
+    }
     if (profile && !isInteractingRef.current) {
       setSelectedGoal(profile.goal_type);
       setTargetWeight(profile.target_weight_kg);
       setRatePercent(profile.weekly_rate_percent);
+      Animated.timing(rateAnim, {
+        toValue: profile.goal_type === 'maintenance' ? 0 : 1,
+        duration: 250,
+        useNativeDriver: false,
+      }).start();
     }
-  }, [profile]);
+  }, [profile, rateAnim, loading, isTransitioning]);
+
+  const isBusy = loading || isTransitioning;
 
   // Debounced server dispatch
   const scheduleServerSync = (goal: GoalType, target: number, rate: number) => {
@@ -75,7 +92,7 @@ export const GoalEtaCard: React.FC<GoalEtaCardProps> = ({
 
   // Adjust target weight
   const adjustTargetWeight = (delta: number) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if (isBusy) return;
     const nextVal = Math.round((targetWeight + delta) * 10) / 10;
     if (nextVal > 30 && nextVal < 250) {
       setTargetWeight(nextVal);
@@ -85,7 +102,7 @@ export const GoalEtaCard: React.FC<GoalEtaCardProps> = ({
 
   // Adjust rate
   const adjustRate = (delta: number) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if (isBusy) return;
     const sign = selectedGoal === 'muscle_gain' ? 1 : -1;
     const absRate = Math.abs(ratePercent);
     const nextAbs = Math.max(0.2, Math.min(1.5, Math.round((absRate + delta) * 100) / 100));
@@ -95,8 +112,28 @@ export const GoalEtaCard: React.FC<GoalEtaCardProps> = ({
   };
 
   const handleGoalSelect = (goal: GoalType) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if (goal === selectedGoal || isBusy) return;
+    setIsTransitioning(true);
     setSelectedGoal(goal);
+
+    // 60FPS Animated accordion expand/collapse
+    Animated.spring(rateAnim, {
+      toValue: goal === 'maintenance' ? 0 : 1,
+      useNativeDriver: false,
+      bounciness: 0,
+      speed: 16,
+    }).start();
+
+    // Subtle cross-fade for metric labels
+    Animated.sequence([
+      Animated.timing(cardContentAnim, { toValue: 0.3, duration: 70, useNativeDriver: true }),
+      Animated.timing(cardContentAnim, { toValue: 1, duration: 150, useNativeDriver: true }),
+    ]).start(({ finished }) => {
+      if (finished && !loading) {
+        setIsTransitioning(false);
+      }
+    });
+
     let nextTarget = targetWeight;
     let nextRate = ratePercent;
 
@@ -166,132 +203,126 @@ export const GoalEtaCard: React.FC<GoalEtaCardProps> = ({
         {loading && <ActivityIndicator size="small" color={colors.accentBlue} />}
       </View>
 
-      {/* Goal Type Segment Pills */}
-      <View style={styles.segmentContainer}>
-        {GOAL_OPTIONS.map(opt => {
-          const isSelected = selectedGoal === opt.key;
-          return (
-            <TouchableOpacity
-              key={opt.key}
-              style={[styles.segmentBtn, isSelected && styles.segmentBtnActive]}
-              onPress={() => handleGoalSelect(opt.key)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.segmentIcon}>{opt.icon}</Text>
-              <Text
-                style={[
-                  styles.segmentText,
-                  isSelected && styles.segmentTextActive,
-                ]}
-              >
-                {opt.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+      {/* 60FPS Hardware-Accelerated Sliding Pill Segmented Control */}
+      <AnimatedSegmentedControl
+        options={GOAL_OPTIONS}
+        selectedKey={selectedGoal}
+        onSelect={handleGoalSelect}
+        disabled={isBusy}
+      />
 
-      {/* Target Weight & Current Weight Display */}
-      <View style={styles.weightRowContainer}>
-        <View style={styles.weightBox}>
-          <Text style={styles.weightBoxLabel}>CURRENT</Text>
-          <Text style={styles.weightBoxValue}>{currentWeight.toFixed(1)} <Text style={styles.weightUnit}>kg</Text></Text>
-        </View>
-
-        <View style={styles.arrowContainer}>
-          <Text style={styles.arrowText}>→</Text>
-          <Text style={styles.gapText}>
-            {selectedGoal === 'maintenance'
-              ? 'Steady'
-              : `${selectedGoal === 'fat_loss' ? '-' : '+'}${weightGap.toFixed(1)} kg`}
-          </Text>
-        </View>
-
-        <View style={styles.weightBox}>
-          <Text style={styles.weightBoxLabel}>TARGET</Text>
-          {selectedGoal === 'maintenance' ? (
+      <Animated.View style={{ opacity: cardContentAnim }}>
+        {/* Target Weight & Current Weight Display */}
+        <View style={styles.weightRowContainer}>
+          <View style={styles.weightBox}>
+            <Text style={styles.weightBoxLabel}>CURRENT</Text>
             <Text style={styles.weightBoxValue}>{currentWeight.toFixed(1)} <Text style={styles.weightUnit}>kg</Text></Text>
-          ) : (
-            <View style={styles.stepperRow}>
+          </View>
+
+          <View style={styles.arrowContainer}>
+            <Text style={styles.arrowText}>→</Text>
+            <Text style={styles.gapText}>
+              {selectedGoal === 'maintenance'
+                ? 'Steady'
+                : `${selectedGoal === 'fat_loss' ? '-' : '+'}${weightGap.toFixed(1)} kg`}
+            </Text>
+          </View>
+
+          <View style={styles.weightBox}>
+            <Text style={styles.weightBoxLabel}>TARGET</Text>
+            {selectedGoal === 'maintenance' ? (
+              <Text style={styles.weightBoxValue}>{currentWeight.toFixed(1)} <Text style={styles.weightUnit}>kg</Text></Text>
+            ) : (
+              <View style={styles.stepperRow}>
+                <TouchableOpacity
+                  style={styles.stepBtn}
+                  onPress={() => adjustTargetWeight(-0.5)}
+                  activeOpacity={0.6}
+                >
+                  <Text style={styles.stepBtnText}>−</Text>
+                </TouchableOpacity>
+                <Text style={styles.weightBoxValue}>{targetWeight.toFixed(1)} <Text style={styles.weightUnit}>kg</Text></Text>
+                <TouchableOpacity
+                  style={styles.stepBtn}
+                  onPress={() => adjustTargetWeight(0.5)}
+                  activeOpacity={0.6}
+                >
+                  <Text style={styles.stepBtnText}>+</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* Rate of Progress Section (Smooth 60FPS Animated Accordion) */}
+        <Animated.View
+          style={{
+            maxHeight: rateAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, 160],
+            }),
+            opacity: rateAnim,
+            overflow: 'hidden',
+          }}
+        >
+          <View style={styles.rateSection}>
+            <View style={styles.rateHeaderRow}>
+              <Text style={styles.rateSectionLabel}>WEEKLY RATE OF CHANGE</Text>
+              <View style={[styles.rateBadge, { backgroundColor: rateBadgeColor + '22' }]}>
+                <Text style={[styles.rateBadgeText, { color: rateBadgeColor }]}>
+                  {rateLabel}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.rateControlRow}>
               <TouchableOpacity
-                style={styles.stepBtn}
-                onPress={() => adjustTargetWeight(-0.5)}
+                style={styles.rateStepBtn}
+                onPress={() => adjustRate(-0.05)}
                 activeOpacity={0.6}
               >
-                <Text style={styles.stepBtnText}>−</Text>
+                <Text style={styles.rateStepBtnText}>−</Text>
               </TouchableOpacity>
-              <Text style={styles.weightBoxValue}>{targetWeight.toFixed(1)} <Text style={styles.weightUnit}>kg</Text></Text>
+
+              <View style={styles.rateDisplay}>
+                <Text style={styles.ratePercentValue}>
+                  {Math.abs(ratePercent).toFixed(2)}%
+                  <Text style={styles.rateUnit}> / week</Text>
+                </Text>
+                <Text style={styles.rateKgDelta}>
+                  {weeklyDeltaKg >= 0 ? `+${weeklyDeltaKg.toFixed(2)}` : weeklyDeltaKg.toFixed(2)} kg / week
+                </Text>
+              </View>
+
               <TouchableOpacity
-                style={styles.stepBtn}
-                onPress={() => adjustTargetWeight(0.5)}
+                style={styles.rateStepBtn}
+                onPress={() => adjustRate(0.05)}
                 activeOpacity={0.6}
               >
-                <Text style={styles.stepBtnText}>+</Text>
+                <Text style={styles.rateStepBtnText}>+</Text>
               </TouchableOpacity>
+            </View>
+          </View>
+        </Animated.View>
+
+        {/* Prominent Estimated Arrival Date / ETA Banner */}
+        <View style={styles.etaBanner}>
+          <View style={styles.etaLeft}>
+            <Text style={styles.etaIcon}>🗓️</Text>
+            <View>
+              <Text style={styles.etaLabel}>ESTIMATED ARRIVAL</Text>
+              <Text style={styles.etaDate}>
+                {localEtaDate}
+              </Text>
+            </View>
+          </View>
+          {selectedGoal !== 'maintenance' && weeksToGoal > 0 && (
+            <View style={styles.weeksPill}>
+              <Text style={styles.weeksPillText}>~{Math.round(weeksToGoal)} wks</Text>
             </View>
           )}
         </View>
-      </View>
-
-      {/* Rate of Progress Section (hidden for maintenance) */}
-      {selectedGoal !== 'maintenance' && (
-        <View style={styles.rateSection}>
-          <View style={styles.rateHeaderRow}>
-            <Text style={styles.rateSectionLabel}>WEEKLY RATE OF CHANGE</Text>
-            <View style={[styles.rateBadge, { backgroundColor: rateBadgeColor + '22' }]}>
-              <Text style={[styles.rateBadgeText, { color: rateBadgeColor }]}>
-                {rateLabel}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.rateControlRow}>
-            <TouchableOpacity
-              style={styles.rateStepBtn}
-              onPress={() => adjustRate(-0.05)}
-              activeOpacity={0.6}
-            >
-              <Text style={styles.rateStepBtnText}>−</Text>
-            </TouchableOpacity>
-
-            <View style={styles.rateDisplay}>
-              <Text style={styles.ratePercentValue}>
-                {Math.abs(ratePercent).toFixed(2)}%
-                <Text style={styles.rateUnit}> / week</Text>
-              </Text>
-              <Text style={styles.rateKgDelta}>
-                {weeklyDeltaKg >= 0 ? `+${weeklyDeltaKg.toFixed(2)}` : weeklyDeltaKg.toFixed(2)} kg / week
-              </Text>
-            </View>
-
-            <TouchableOpacity
-              style={styles.rateStepBtn}
-              onPress={() => adjustRate(0.05)}
-              activeOpacity={0.6}
-            >
-              <Text style={styles.rateStepBtnText}>+</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {/* Prominent Estimated Arrival Date / ETA Banner */}
-      <View style={styles.etaBanner}>
-        <View style={styles.etaLeft}>
-          <Text style={styles.etaIcon}>🗓️</Text>
-          <View>
-            <Text style={styles.etaLabel}>ESTIMATED ARRIVAL</Text>
-            <Text style={styles.etaDate}>
-              {localEtaDate}
-            </Text>
-          </View>
-        </View>
-        {selectedGoal !== 'maintenance' && weeksToGoal > 0 && (
-          <View style={styles.weeksPill}>
-            <Text style={styles.weeksPillText}>~{Math.round(weeksToGoal)} wks</Text>
-          </View>
-        )}
-      </View>
+      </Animated.View>
     </View>
   );
 };

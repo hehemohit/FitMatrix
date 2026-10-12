@@ -26,6 +26,7 @@ from app.models.documents import (
     PlanArtifactDocument,
     DailyLogDocument,
     StrategyProfileDocument,
+    CustomBarcodeDocument,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,7 @@ async def init_db() -> None:
                 PlanArtifactDocument,
                 DailyLogDocument,
                 StrategyProfileDocument,
+                CustomBarcodeDocument,
             ],
         )
 

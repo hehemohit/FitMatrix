@@ -238,3 +238,27 @@ class StrategyProfileDocument(Document):
         name = "strategy_profiles"
 
 
+class CustomBarcodeDocument(Document):
+    """
+    Collection: custom_barcodes
+    Crowdsourced and user-contributed food barcodes when external
+    databases (Open Food Facts) return 404 Not Found.
+    """
+    barcode: Annotated[str, Indexed(unique=True)]
+    product_name: str
+    brand: Optional[str] = "Custom Product"
+    serving_size: str = "100g"
+    serving_size_g: float = 100.0
+    calories: int
+    protein_g: int
+    carbs_g: int
+    fats_g: int
+    image_url: Optional[str] = None
+    contributed_by_user_id: Optional[str] = "community"
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Settings:
+        name = "custom_barcodes"
+
+
