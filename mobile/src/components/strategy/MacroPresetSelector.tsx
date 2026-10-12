@@ -6,13 +6,20 @@ import {
   StyleSheet,
 } from 'react-native';
 import { colors } from '../../theme/colors';
-import { DietStyle, ProteinPreference } from '../../types/schema';
+import { LayoutAnimation, Platform, UIManager } from 'react-native';
+import { CoachingMode, DietStyle, ProteinPreference } from '../../types/schema';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 interface MacroPresetSelectorProps {
   currentDietStyle: DietStyle;
   currentProteinPref: ProteinPreference;
+  coachingMode?: CoachingMode;
   onSelectDietStyle: (style: DietStyle) => void;
   onSelectProteinPref: (pref: ProteinPreference) => void;
+  onOpenManualEditor?: () => void;
 }
 
 interface DietPreset {
@@ -68,16 +75,48 @@ const PROTEIN_PREFS: Array<{ key: ProteinPreference; label: string; ratio: strin
 export const MacroPresetSelector: React.FC<MacroPresetSelectorProps> = ({
   currentDietStyle,
   currentProteinPref,
+  coachingMode = 'coached',
   onSelectDietStyle,
   onSelectProteinPref,
+  onOpenManualEditor,
 }) => {
+  const handleSelectDietStyle = (style: DietStyle) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    onSelectDietStyle(style);
+  };
+
+  const handleSelectProteinPref = (pref: ProteinPreference) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    onSelectProteinPref(pref);
+  };
+
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
-        <View>
-          <Text style={styles.superTitle}>MACRO ARCHITECTURE</Text>
-          <Text style={styles.title}>Diet Style & Macros</Text>
+        <View style={styles.headerTitleRow}>
+          <View>
+            <Text style={styles.superTitle}>MACRO ARCHITECTURE</Text>
+            <Text style={styles.title}>Diet Style & Macros</Text>
+          </View>
+          {coachingMode === 'manual' && (
+            <View style={styles.manualBadge}>
+              <Text style={styles.manualBadgeText}>MANUAL MODE</Text>
+            </View>
+          )}
         </View>
+
+        {coachingMode === 'manual' && onOpenManualEditor && (
+          <TouchableOpacity
+            style={styles.manualNoticeBox}
+            onPress={onOpenManualEditor}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.manualNoticeText}>
+              ✏️ Manual Mode is active. Select any preset below as a template, or{' '}
+              <Text style={styles.manualNoticeLink}>tap here to edit exact gram targets</Text>.
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* 2x2 Grid of Diet Style Presets */}
@@ -201,6 +240,43 @@ const styles = StyleSheet.create({
   },
   headerRow: {
     marginBottom: 14,
+  },
+  headerTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  manualBadge: {
+    backgroundColor: 'rgba(255, 215, 0, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 0, 0.35)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  manualBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.accentYellow,
+    letterSpacing: 0.6,
+  },
+  manualNoticeBox: {
+    marginTop: 10,
+    backgroundColor: 'rgba(255, 215, 0, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 0, 0.2)',
+    borderRadius: 12,
+    padding: 10,
+  },
+  manualNoticeText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    lineHeight: 16,
+  },
+  manualNoticeLink: {
+    color: colors.accentYellow,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
   superTitle: {
     fontSize: 10,

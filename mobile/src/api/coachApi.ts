@@ -12,13 +12,10 @@ import {
 } from '../types/schema';
 import { WorkoutPlan, DietPlan, SleepGoal } from '../types/plans';
 
-// Set to deployed Render URL for production, or empty string for local development with adb reverse:
-export const RENDER_BACKEND_URL = '';
+import { API_BASE_URL } from '../config/env';
 
-// When RENDER_BACKEND_URL is set, it will connect directly over HTTPS without adb reverse
-export const BASE_URL = RENDER_BACKEND_URL.trim().length > 0 
-  ? RENDER_BACKEND_URL 
-  : 'http://localhost:8000';
+// Dynamically loaded from mobile/.env via react-native-dotenv
+export const BASE_URL = API_BASE_URL;
 
 export const apiClient = axios.create({
   baseURL: BASE_URL,

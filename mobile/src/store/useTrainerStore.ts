@@ -73,6 +73,17 @@ function hydrate<T>(key: string, fallback: T): T {
   }
 }
 
+function getActiveUserId(): string {
+  const raw = storage.getString('user');
+  if (raw) {
+    try {
+      const u = JSON.parse(raw);
+      if (u?.userId) return u.userId;
+    } catch {}
+  }
+  return 'usr_dev_1';
+}
+
 
 // ─── Store Interface ──────────────────────────────────────────────────────────
 
@@ -131,6 +142,7 @@ interface TrainerState {
   syncTodayNutrition: () => Promise<void>;
   syncHabitsHistory: () => Promise<void>;
   weighIn: (weightKg: number) => Promise<void>;
+  syncCurrentWeight: (weightKg: number) => void;
   resetChat: () => void;
 
   // Strategy Actions
@@ -516,12 +528,57 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
     }
   },
 
-  // ── weighIn: optimistic update + MMKV + MongoDB Atlas background sync ──
-  weighIn: async (weightKg: number) => {
-    const updatedProfile = { ...get().userProfile, weight_kg: weightKg };
+  // ── syncCurrentWeight: single source of truth for body weight ──
+  syncCurrentWeight: (weightKg: number) => {
+    const state = get();
+    const updatedProfile = { ...state.userProfile, weight_kg: weightKg };
     persist('user_profile', updatedProfile);
 
-    // Optimistically activate today's dot in weighInHistory (last element)
+    let updatedStrategy = state.strategyProfile;
+    if (updatedStrategy) {
+      const curGoal = updatedStrategy.goal_type;
+      const targetWeight = updatedStrategy.target_weight_kg;
+      const ratePct = updatedStrategy.weekly_rate_percent || -0.75;
+
+      const rateSign = curGoal === 'fat_loss' ? -1.0 : 1.0;
+      const weeklyDeltaKg = curGoal === 'maintenance'
+        ? 0.0
+        : Math.round(rateSign * (weightKg * (Math.abs(ratePct) / 100)) * 100) / 100;
+
+      const weightGap = Math.abs(targetWeight - weightKg);
+      const weeksToGoal = (curGoal === 'maintenance' || Math.abs(weeklyDeltaKg) < 0.01 || weightGap < 0.1)
+        ? 0.0
+        : Math.round((weightGap / Math.abs(weeklyDeltaKg)) * 10) / 10;
+
+      let estDate: string | null = null;
+      if (weeksToGoal > 0) {
+        const targetDate = new Date();
+        targetDate.setDate(targetDate.getDate() + Math.round(weeksToGoal * 7));
+        estDate = targetDate.toISOString().split('T')[0];
+      }
+
+      updatedStrategy = {
+        ...updatedStrategy,
+        current_weight_kg: weightKg,
+        weekly_weight_delta_kg: weeklyDeltaKg,
+        weeks_to_goal: weeksToGoal,
+        estimated_completion_date: estDate,
+      };
+      persist('strategy_profile', updatedStrategy);
+    }
+
+    set({
+      userProfile: updatedProfile,
+      strategyProfile: updatedStrategy,
+    });
+  },
+
+  // ── weighIn: optimistic update + MMKV + MongoDB Atlas background sync ──
+  weighIn: async (weightKg: number) => {
+    // 1. Sync weight across both userProfile and strategyProfile instantly
+    get().syncCurrentWeight(weightKg);
+
+    // 2. Optimistically activate today's dot in weighInHistory (last element)
     const currentWeighHistory = [...get().weighInHistory];
     if (currentWeighHistory.length > 0) {
       currentWeighHistory[currentWeighHistory.length - 1] = true;
@@ -533,13 +590,12 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
     persist('weigh_in_stat', newWeighStat);
 
     set({
-      userProfile: updatedProfile,
       weighInHistory: currentWeighHistory,
       weighInStat: newWeighStat,
     });
 
     try {
-      await logWeighIn('usr_dev_1', weightKg);
+      await logWeighIn(getActiveUserId(), weightKg);
     } catch (err) {
       console.warn('[weighIn] Server sync failed (offline?):', err);
     }
@@ -558,8 +614,13 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
   fetchStrategyProfile: async () => {
     set({ strategyLoading: true });
     try {
-      const profile = await getStrategyProfile('usr_dev_1');
+      const activeId = getActiveUserId();
+      const profile = await getStrategyProfile(activeId);
       if (profile) {
+        const localUserWeight = get().userProfile?.weight_kg;
+        if (localUserWeight && Math.abs(localUserWeight - profile.current_weight_kg) > 0.05) {
+          profile.current_weight_kg = localUserWeight;
+        }
         persist('strategy_profile', profile);
         const updatedTargets: MetabolicTargets = {
           ...get().metabolicTargets,
@@ -607,7 +668,7 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
       set({ strategyProfile: optimistic });
     }
     try {
-      const updated = await updateStrategyMode('usr_dev_1', mode);
+      const updated = await updateStrategyMode(getActiveUserId(), mode);
       persist('strategy_profile', updated);
       set({ strategyProfile: updated });
     } catch (err) {
@@ -618,7 +679,10 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
   setDietStyle: async (params) => {
     set({ strategyLoading: true });
     try {
-      const updated = await apiUpdateDietStyle(params);
+      const updated = await apiUpdateDietStyle({
+        ...params,
+        userId: getActiveUserId(),
+      });
       persist('strategy_profile', updated);
       const updatedTargets: MetabolicTargets = {
         ...get().metabolicTargets,
@@ -643,7 +707,7 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
       set({ strategyProfile: optimistic });
     }
     try {
-      const updated = await apiUpdateScheduleTargets('usr_dev_1', schedule);
+      const updated = await apiUpdateScheduleTargets(getActiveUserId(), schedule);
       persist('strategy_profile', updated);
       set({ strategyProfile: updated });
     } catch (err) {
@@ -654,7 +718,7 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
   setManualTargets: async (targets) => {
     set({ strategyLoading: true });
     try {
-      const updated = await apiUpdateManualTargets('usr_dev_1', targets);
+      const updated = await apiUpdateManualTargets(getActiveUserId(), targets);
       persist('strategy_profile', updated);
       const updatedTargets: MetabolicTargets = {
         ...get().metabolicTargets,
@@ -675,7 +739,7 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
   runWeeklyCheckIn: async () => {
     set({ checkInLoading: true });
     try {
-      const res = await apiPerformWeeklyCheckIn('usr_dev_1');
+      const res = await apiPerformWeeklyCheckIn(getActiveUserId());
       if (res && res.success && res.updated_profile) {
         persist('strategy_profile', res.updated_profile);
         const updatedTargets: MetabolicTargets = {

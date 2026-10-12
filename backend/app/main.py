@@ -62,6 +62,8 @@ class BiometricPayload(BaseModel):
 
 # ─── Health Check ─────────────────────────────────────────────────────────────
 
+@app.get("/")
+@app.head("/")
 @app.get("/health")
 async def health_check():
     return {"status": "online", "project": settings.PROJECT_NAME}

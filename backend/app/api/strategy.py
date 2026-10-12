@@ -312,7 +312,21 @@ async def get_strategy_profile(user_id: str = Query("usr_dev_1")):
             )
             await profile.insert()
         else:
-            # Keep current weight updated if missing or out of sync
+            # Synchronize current weight from user profile or recent weigh-in
+            if user_doc and user_doc.profile and user_doc.profile.weight_kg:
+                if abs((profile.current_weight_kg or 0) - user_doc.profile.weight_kg) > 0.05:
+                    profile.current_weight_kg = user_doc.profile.weight_kg
+                    weekly_delta, weeks, eta = calculate_eta_and_delta(
+                        profile.goal_type,
+                        profile.current_weight_kg,
+                        profile.target_weight_kg,
+                        profile.weekly_rate_percent,
+                    )
+                    profile.weekly_weight_delta_kg = weekly_delta
+                    profile.weeks_to_goal = weeks
+                    profile.estimated_completion_date = eta
+                    await profile.save()
+
             if not profile.schedule_targets or len(profile.schedule_targets) == 0:
                 profile.schedule_targets = generate_schedule(
                     profile.target_calories,

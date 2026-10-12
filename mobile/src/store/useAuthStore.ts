@@ -169,6 +169,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
         // Update trainer store with initial calibrated profile & strategy
         const trainerStore = useTrainerStore.getState();
+        trainerStore.syncCurrentWeight(payload.current_weight_kg);
         if (res.strategy_profile) {
           trainerStore.setScheduleTargets(res.strategy_profile.schedule_targets);
           trainerStore.fetchStrategyProfile();

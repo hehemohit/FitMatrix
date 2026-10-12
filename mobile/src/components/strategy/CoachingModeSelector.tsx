@@ -8,9 +8,10 @@ import {
 import { colors } from '../../theme/colors';
 import { CoachingMode } from '../../types/schema';
 
-interface CoachingModeSelectorProps {
-  currentMode: CoachingMode;
-  onSelectMode: (mode: CoachingMode) => void;
+import { LayoutAnimation, Platform, UIManager } from 'react-native';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
 interface ModeDetail {
@@ -61,11 +62,23 @@ const MODES: ModeDetail[] = [
   },
 ];
 
+interface CoachingModeSelectorProps {
+  currentMode: CoachingMode;
+  onSelectMode: (mode: CoachingMode) => void;
+  onOpenManualEditor?: () => void;
+}
+
 export const CoachingModeSelector: React.FC<CoachingModeSelectorProps> = ({
   currentMode,
   onSelectMode,
+  onOpenManualEditor,
 }) => {
   const activeDetail = MODES.find(m => m.key === currentMode) || MODES[0];
+
+  const handleSelect = (mode: CoachingMode) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    onSelectMode(mode);
+  };
 
   return (
     <View style={styles.card}>
@@ -89,8 +102,8 @@ export const CoachingModeSelector: React.FC<CoachingModeSelectorProps> = ({
             <TouchableOpacity
               key={mode.key}
               style={[styles.segmentBtn, isSelected && styles.segmentBtnActive]}
-              onPress={() => onSelectMode(mode.key)}
-              activeOpacity={0.8}
+              onPress={() => handleSelect(mode.key)}
+              activeOpacity={0.7}
             >
               <Text
                 style={[
@@ -117,6 +130,17 @@ export const CoachingModeSelector: React.FC<CoachingModeSelectorProps> = ({
             </View>
           ))}
         </View>
+
+        {currentMode === 'manual' && onOpenManualEditor && (
+          <TouchableOpacity
+            style={styles.manualActionBtn}
+            onPress={onOpenManualEditor}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.manualActionIcon}>✏️</Text>
+            <Text style={styles.manualActionText}>Configure Manual Daily Targets</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -219,5 +243,26 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     flex: 1,
     lineHeight: 16,
+  },
+  manualActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 14,
+    backgroundColor: 'rgba(255, 215, 0, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 0, 0.35)',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  manualActionIcon: {
+    fontSize: 14,
+  },
+  manualActionText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.accentYellow,
   },
 });

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ScrollView,
   View,
@@ -17,9 +17,11 @@ import { CoachingModeSelector } from '../components/strategy/CoachingModeSelecto
 import { MacroPresetSelector } from '../components/strategy/MacroPresetSelector';
 import { MacroCyclingSchedule } from '../components/strategy/MacroCyclingSchedule';
 import { WeeklyCheckInModal } from '../components/strategy/WeeklyCheckInModal';
+import { ManualTargetEditorModal } from '../components/strategy/ManualTargetEditorModal';
 
 export const StrategyScreen: React.FC = () => {
   const topInset = useSafeTopInset();
+  const [manualEditorVisible, setManualEditorVisible] = useState(false);
 
   const {
     strategyProfile,
@@ -32,6 +34,7 @@ export const StrategyScreen: React.FC = () => {
     setCoachingMode,
     setDietStyle,
     setScheduleTargets,
+    setManualTargets,
     runWeeklyCheckIn,
     setCheckInModalVisible,
   } = useTrainerStore();
@@ -143,12 +146,14 @@ export const StrategyScreen: React.FC = () => {
         <CoachingModeSelector
           currentMode={strategyProfile?.coaching_mode ?? 'coached'}
           onSelectMode={mode => setCoachingMode(mode)}
+          onOpenManualEditor={() => setManualEditorVisible(true)}
         />
 
         {/* 4. Macro Program Customization (Diet Style & Protein Density) */}
         <MacroPresetSelector
           currentDietStyle={strategyProfile?.diet_style ?? 'balanced'}
           currentProteinPref={strategyProfile?.protein_preference ?? 'moderate'}
+          coachingMode={strategyProfile?.coaching_mode ?? 'coached'}
           onSelectDietStyle={style => {
             setDietStyle({
               diet_style: style,
@@ -163,6 +168,7 @@ export const StrategyScreen: React.FC = () => {
               use_day_variation: strategyProfile?.use_day_variation,
             });
           }}
+          onOpenManualEditor={() => setManualEditorVisible(true)}
         />
 
         {/* 5. Day-to-Day Variation (Macro Cycling) */}
@@ -187,7 +193,25 @@ export const StrategyScreen: React.FC = () => {
 
         {/* 6. Program Targets Summary Card */}
         <View style={styles.targetsCard}>
-          <Text style={styles.targetsTitle}>Program Targets Summary</Text>
+          <View style={styles.targetsHeaderRow}>
+            <View>
+              <Text style={styles.targetsTitle}>Program Targets Summary</Text>
+              <Text style={styles.targetsSubtitle}>
+                {strategyProfile?.coaching_mode === 'manual'
+                  ? 'Manual Mode: Fixed User-Defined Targets'
+                  : 'Calibrated Metabolic Daily Budget'}
+              </Text>
+            </View>
+            {strategyProfile?.coaching_mode === 'manual' && (
+              <TouchableOpacity
+                style={styles.editManualBtn}
+                onPress={() => setManualEditorVisible(true)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.editManualBtnText}>✏️ Edit Targets</Text>
+              </TouchableOpacity>
+            )}
+          </View>
 
           <View style={styles.targetRow}>
             <Text style={styles.targetLabel}>Baseline Calories</Text>
@@ -223,7 +247,7 @@ export const StrategyScreen: React.FC = () => {
             <Text style={styles.checkInTitle}>Weekly Companion Check-In</Text>
           </View>
           <Text style={styles.checkInBody}>
-            MacroFactor's adherence-neutral algorithm continuously reviews your true metabolic expenditure to prevent plateauing. Run your weekly check-in to keep targets aligned.
+            FitMatrix's adherence-neutral algorithm continuously reviews your true metabolic expenditure to prevent plateauing. Run your weekly check-in to keep targets aligned.
           </Text>
           <TouchableOpacity
             style={styles.checkInBtn}
@@ -239,6 +263,19 @@ export const StrategyScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Manual Targets Editor Modal */}
+      <ManualTargetEditorModal
+        visible={manualEditorVisible}
+        currentCalories={targetCals}
+        currentProtein={targetProtein}
+        currentCarbs={targetCarbs}
+        currentFats={targetFats}
+        onClose={() => setManualEditorVisible(false)}
+        onSave={newTargets => {
+          setManualTargets(newTargets);
+        }}
+      />
 
       {/* Weekly Check-in Review Modal */}
       <WeeklyCheckInModal
@@ -399,11 +436,34 @@ const styles = StyleSheet.create({
     borderColor: colors.borderSubtle,
     marginBottom: 16,
   },
+  targetsHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
   targetsTitle: {
     fontSize: 16,
     fontWeight: '700',
     color: colors.textPrimary,
-    marginBottom: 14,
+  },
+  targetsSubtitle: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  editManualBtn: {
+    backgroundColor: 'rgba(255, 215, 0, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 0, 0.35)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  editManualBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.accentYellow,
   },
   targetRow: {
     flexDirection: 'row',

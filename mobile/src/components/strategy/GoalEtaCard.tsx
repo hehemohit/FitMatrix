@@ -1,13 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  LayoutAnimation,
+  Platform,
+  UIManager,
 } from 'react-native';
 import { colors } from '../../theme/colors';
 import { GoalType, StrategyProfile } from '../../types/schema';
+import { useTrainerStore } from '../../store/useTrainerStore';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 interface GoalEtaCardProps {
   profile: StrategyProfile | null;
@@ -30,51 +38,64 @@ export const GoalEtaCard: React.FC<GoalEtaCardProps> = ({
   onUpdateGoal,
   loading = false,
 }) => {
-  const currentWeight = profile?.current_weight_kg ?? 78.4;
-  const initialGoal = profile?.goal_type ?? 'fat_loss';
-  const initialTargetWeight = profile?.target_weight_kg ?? 75.0;
-  const initialRate = profile?.weekly_rate_percent ?? -0.75;
+  const storeUserWeight = useTrainerStore.getState().userProfile?.weight_kg;
+  const currentWeight = profile?.current_weight_kg ?? storeUserWeight ?? 70.0;
 
-  const [selectedGoal, setSelectedGoal] = useState<GoalType>(initialGoal);
-  const [targetWeight, setTargetWeight] = useState<number>(initialTargetWeight);
-  const [ratePercent, setRatePercent] = useState<number>(initialRate);
+  const [selectedGoal, setSelectedGoal] = useState<GoalType>(profile?.goal_type ?? 'fat_loss');
+  const [targetWeight, setTargetWeight] = useState<number>(profile?.target_weight_kg ?? (currentWeight - 4.0));
+  const [ratePercent, setRatePercent] = useState<number>(profile?.weekly_rate_percent ?? -0.75);
 
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isInteractingRef = useRef<boolean>(false);
+
+  // Synchronize when remote profile updates, unless user is actively tapping
   useEffect(() => {
-    if (profile) {
+    if (profile && !isInteractingRef.current) {
       setSelectedGoal(profile.goal_type);
       setTargetWeight(profile.target_weight_kg);
       setRatePercent(profile.weekly_rate_percent);
     }
   }, [profile]);
 
+  // Debounced server dispatch
+  const scheduleServerSync = (goal: GoalType, target: number, rate: number) => {
+    isInteractingRef.current = true;
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      isInteractingRef.current = false;
+      onUpdateGoal({
+        goal_type: goal,
+        target_weight_kg: target,
+        weekly_rate_percent: rate,
+      });
+    }, 400);
+  };
+
   // Adjust target weight
   const adjustTargetWeight = (delta: number) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     const nextVal = Math.round((targetWeight + delta) * 10) / 10;
     if (nextVal > 30 && nextVal < 250) {
       setTargetWeight(nextVal);
-      onUpdateGoal({
-        goal_type: selectedGoal,
-        target_weight_kg: nextVal,
-        weekly_rate_percent: ratePercent,
-      });
+      scheduleServerSync(selectedGoal, nextVal, ratePercent);
     }
   };
 
   // Adjust rate
   const adjustRate = (delta: number) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     const sign = selectedGoal === 'muscle_gain' ? 1 : -1;
     const absRate = Math.abs(ratePercent);
     const nextAbs = Math.max(0.2, Math.min(1.5, Math.round((absRate + delta) * 100) / 100));
     const nextRate = sign * nextAbs;
     setRatePercent(nextRate);
-    onUpdateGoal({
-      goal_type: selectedGoal,
-      target_weight_kg: targetWeight,
-      weekly_rate_percent: nextRate,
-    });
+    scheduleServerSync(selectedGoal, targetWeight, nextRate);
   };
 
   const handleGoalSelect = (goal: GoalType) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setSelectedGoal(goal);
     let nextTarget = targetWeight;
     let nextRate = ratePercent;
@@ -96,14 +117,10 @@ export const GoalEtaCard: React.FC<GoalEtaCardProps> = ({
 
     setTargetWeight(nextTarget);
     setRatePercent(nextRate);
-    onUpdateGoal({
-      goal_type: goal,
-      target_weight_kg: nextTarget,
-      weekly_rate_percent: nextRate,
-    });
+    scheduleServerSync(goal, nextTarget, nextRate);
   };
 
-  // Derived metrics
+  // Derived metrics with live local ETA computation
   const weightGap = Math.abs(targetWeight - currentWeight);
   const weeklyDeltaKg = selectedGoal === 'maintenance'
     ? 0
@@ -112,6 +129,14 @@ export const GoalEtaCard: React.FC<GoalEtaCardProps> = ({
   const weeksToGoal = selectedGoal === 'maintenance' || Math.abs(weeklyDeltaKg) < 0.05
     ? 0
     : Math.round((weightGap / Math.abs(weeklyDeltaKg)) * 10) / 10;
+
+  const localEtaDate = useMemo(() => {
+    if (selectedGoal === 'maintenance') return 'Indefinite Lifestyle Protocol';
+    if (weeksToGoal <= 0) return 'Goal Reached';
+    const targetDate = new Date();
+    targetDate.setDate(targetDate.getDate() + Math.round(weeksToGoal * 7));
+    return targetDate.toISOString().split('T')[0];
+  }, [selectedGoal, weeksToGoal]);
 
   const rateAbs = Math.abs(ratePercent);
   const isSafeRate = rateAbs <= 0.85;
@@ -150,7 +175,7 @@ export const GoalEtaCard: React.FC<GoalEtaCardProps> = ({
               key={opt.key}
               style={[styles.segmentBtn, isSelected && styles.segmentBtnActive]}
               onPress={() => handleGoalSelect(opt.key)}
-              activeOpacity={0.8}
+              activeOpacity={0.7}
             >
               <Text style={styles.segmentIcon}>{opt.icon}</Text>
               <Text
@@ -191,7 +216,7 @@ export const GoalEtaCard: React.FC<GoalEtaCardProps> = ({
               <TouchableOpacity
                 style={styles.stepBtn}
                 onPress={() => adjustTargetWeight(-0.5)}
-                activeOpacity={0.7}
+                activeOpacity={0.6}
               >
                 <Text style={styles.stepBtnText}>−</Text>
               </TouchableOpacity>
@@ -199,7 +224,7 @@ export const GoalEtaCard: React.FC<GoalEtaCardProps> = ({
               <TouchableOpacity
                 style={styles.stepBtn}
                 onPress={() => adjustTargetWeight(0.5)}
-                activeOpacity={0.7}
+                activeOpacity={0.6}
               >
                 <Text style={styles.stepBtnText}>+</Text>
               </TouchableOpacity>
@@ -223,8 +248,8 @@ export const GoalEtaCard: React.FC<GoalEtaCardProps> = ({
           <View style={styles.rateControlRow}>
             <TouchableOpacity
               style={styles.rateStepBtn}
-              onPress={() => adjustRate(-0.1)}
-              activeOpacity={0.7}
+              onPress={() => adjustRate(-0.05)}
+              activeOpacity={0.6}
             >
               <Text style={styles.rateStepBtnText}>−</Text>
             </TouchableOpacity>
@@ -241,8 +266,8 @@ export const GoalEtaCard: React.FC<GoalEtaCardProps> = ({
 
             <TouchableOpacity
               style={styles.rateStepBtn}
-              onPress={() => adjustRate(0.1)}
-              activeOpacity={0.7}
+              onPress={() => adjustRate(0.05)}
+              activeOpacity={0.6}
             >
               <Text style={styles.rateStepBtnText}>+</Text>
             </TouchableOpacity>
@@ -257,11 +282,7 @@ export const GoalEtaCard: React.FC<GoalEtaCardProps> = ({
           <View>
             <Text style={styles.etaLabel}>ESTIMATED ARRIVAL</Text>
             <Text style={styles.etaDate}>
-              {selectedGoal === 'maintenance'
-                ? 'Indefinite Lifestyle Protocol'
-                : profile?.estimated_completion_date
-                ? profile.estimated_completion_date
-                : 'Recalculating...'}
+              {localEtaDate}
             </Text>
           </View>
         </View>
@@ -386,15 +407,15 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   stepBtn: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: colors.borderSubtle,
     alignItems: 'center',
     justifyContent: 'center',
   },
   stepBtnText: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '800',
     color: colors.textPrimary,
     lineHeight: 18,
