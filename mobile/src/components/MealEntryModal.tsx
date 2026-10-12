@@ -23,6 +23,10 @@ import {
   Keyboard,
   Animated,
   Image,
+  PermissionsAndroid,
+  Platform,
+  Linking,
+  Alert,
 } from 'react-native';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import { colors } from '../theme/colors';
@@ -228,8 +232,60 @@ export const MealEntryModal: React.FC<MealEntryModalProps> = ({
   }, [name, category, calories, protein, carbs, fats, onLog, handleClose, shake]);
 
   // ── Mode 2: Multimodal Photo AI Vision ───────────────────────────────────────
+  const requestCameraPermission = async (): Promise<boolean> => {
+    if (Platform.OS !== 'android') return true;
+
+    try {
+      const alreadyGranted = await PermissionsAndroid.check(
+        PermissionsAndroid.PERMISSIONS.CAMERA
+      );
+      if (alreadyGranted) {
+        return true;
+      }
+
+      const result = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.CAMERA,
+        {
+          title: 'Camera Access Needed',
+          message: 'FitMatrix needs camera access so you can take food photos and estimate macros.',
+          buttonNeutral: 'Ask Later',
+          buttonNegative: 'Cancel',
+          buttonPositive: 'Allow',
+        }
+      );
+
+      if (result === PermissionsAndroid.RESULTS.GRANTED) {
+        return true;
+      }
+
+      if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
+        Alert.alert(
+          'Camera Permission Blocked',
+          'Camera access was previously denied or not enabled. Please enable camera permission in App Settings or choose a photo from your gallery.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+          ]
+        );
+      }
+      return false;
+    } catch (err) {
+      console.warn('[requestCameraPermission] Error:', err);
+      return false;
+    }
+  };
+
   const handlePickPhoto = async (type: 'camera' | 'library') => {
     setVisionError('');
+
+    if (type === 'camera') {
+      const hasPermission = await requestCameraPermission();
+      if (!hasPermission) {
+        setVisionError('Camera permission is required. If the camera option is missing in settings, rebuild the app with "npm run android".');
+        return;
+      }
+    }
+
     try {
       const options = {
         mediaType: 'photo' as const,
@@ -243,6 +299,27 @@ export const MealEntryModal: React.FC<MealEntryModalProps> = ({
         ? await launchCamera(options)
         : await launchImageLibrary(options);
 
+      if (result.didCancel) {
+        return;
+      }
+
+      if (result.errorCode) {
+        if (result.errorCode === 'permission') {
+          setVisionError('Camera permission not granted by device. Tap below to open Settings, or rebuild the app with "npm run android".');
+          Alert.alert(
+            'Camera Permission Required',
+            'To take photos directly in FitMatrix, camera permission must be granted. If you just installed the camera feature, rebuild the app with "npm run android".',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => Linking.openSettings() },
+            ]
+          );
+        } else {
+          setVisionError(result.errorMessage || 'Failed to capture photo.');
+        }
+        return;
+      }
+
       if (result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
         if (asset.uri) {
@@ -252,9 +329,9 @@ export const MealEntryModal: React.FC<MealEntryModalProps> = ({
           setSelectedImageBase64(asset.base64);
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn('[handlePickPhoto] Error picking photo:', err);
-      setVisionError('Camera or gallery permission denied or cancelled.');
+      setVisionError('Could not launch camera. Please re-run "npm run android" to compile the new camera permissions into your APK.');
     }
   };
 
@@ -510,7 +587,20 @@ export const MealEntryModal: React.FC<MealEntryModalProps> = ({
           onChangeText={setMealHint}
         />
 
-        {visionError ? <Text style={styles.errorText}>{visionError}</Text> : null}
+        {visionError ? (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText}>{visionError}</Text>
+            {visionError.toLowerCase().includes('permission') && (
+              <TouchableOpacity
+                style={styles.openSettingsBtn}
+                onPress={() => Linking.openSettings()}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.openSettingsBtnText}>⚙️ Open App Settings to Allow Camera</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : null}
 
         <TouchableOpacity
           style={[styles.btn, styles.btnPrimary, (!selectedImageBase64 || visionLoading) && styles.btnDisabled]}
@@ -725,8 +815,28 @@ const styles = StyleSheet.create({
     color: '#ff5252',
     fontSize: 12,
     fontWeight: '600',
+    marginBottom: 6,
+    marginTop: -4,
+  },
+  errorBox: {
     marginBottom: 10,
     marginTop: -4,
+  },
+  openSettingsBtn: {
+    backgroundColor: colors.cardHeader,
+    borderWidth: 1,
+    borderColor: colors.accentYellow,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 6,
+  },
+  openSettingsBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.accentYellow,
   },
   btn: {
     borderRadius: 14,
