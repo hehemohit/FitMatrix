@@ -51,32 +51,45 @@ async def init_db() -> None:
     """
     global _mongo_client
 
-    logger.info("Connecting to MongoDB Atlas: %s / %s", settings.MONGODB_URI[:40] + "...", settings.DATABASE_NAME)
+    if not settings.MONGODB_URI:
+        logger.warning(
+            "MONGODB_URI is not set. Database persistence will be disabled until configured in environment variables."
+        )
+        return
 
-    _mongo_client = AsyncIOMotorClient(
-        settings.MONGODB_URI,
-        serverSelectionTimeoutMS=5000,  # Fail fast during startup if Atlas is unreachable
-    )
+    try:
+        logger.info("Connecting to MongoDB: %s / %s", settings.MONGODB_URI[:35] + "...", settings.DATABASE_NAME)
 
-    # Bridge PyMongo 4.14+ driver metadata for Beanie compatibility with Motor 3.7+
-    if hasattr(_mongo_client.delegate, "append_metadata"):
-        _mongo_client.append_metadata = _mongo_client.delegate.append_metadata
+        _mongo_client = AsyncIOMotorClient(
+            settings.MONGODB_URI,
+            serverSelectionTimeoutMS=5000,  # Fail fast during startup if Atlas is unreachable
+        )
 
-    db = _mongo_client[settings.DATABASE_NAME]
+        # Bridge PyMongo 4.14+ driver metadata for Beanie compatibility with Motor 3.7+
+        if hasattr(_mongo_client.delegate, "append_metadata"):
+            _mongo_client.append_metadata = _mongo_client.delegate.append_metadata
 
-    await init_beanie(
-        database=db,
-        document_models=[
-            UserDocument,
-            DailyMetricDocument,
-            NutritionLogDocument,
-            PlanArtifactDocument,
-        ],
-    )
+        db = _mongo_client[settings.DATABASE_NAME]
 
-    logger.info(
-        "MongoDB Atlas connected. Collections: users, daily_metrics, nutrition_logs, plan_artifacts"
-    )
+        await init_beanie(
+            database=db,
+            document_models=[
+                UserDocument,
+                DailyMetricDocument,
+                NutritionLogDocument,
+                PlanArtifactDocument,
+            ],
+        )
+
+        logger.info(
+            "MongoDB Atlas connected. Collections: users, daily_metrics, nutrition_logs, plan_artifacts"
+        )
+    except Exception as e:
+        logger.error(
+            "Failed to connect to MongoDB at startup: %s. "
+            "Please check MONGODB_URI and IP Access List in Atlas. App continuing in degraded mode.",
+            e,
+        )
 
 
 async def close_db() -> None:
