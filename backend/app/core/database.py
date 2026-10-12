@@ -23,6 +23,7 @@ from app.models.documents import (
     DailyMetricDocument,
     NutritionLogDocument,
     PlanArtifactDocument,
+    DailyLogDocument,
 )
 
 logger = logging.getLogger(__name__)
@@ -78,11 +79,12 @@ async def init_db() -> None:
                 DailyMetricDocument,
                 NutritionLogDocument,
                 PlanArtifactDocument,
+                DailyLogDocument,
             ],
         )
 
         logger.info(
-            "MongoDB Atlas connected. Collections: users, daily_metrics, nutrition_logs, plan_artifacts"
+            "MongoDB Atlas connected. Collections: users, daily_metrics, nutrition_logs, plan_artifacts, daily_logs"
         )
     except Exception as e:
         logger.error(

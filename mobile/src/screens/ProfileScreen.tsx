@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  SafeAreaView,
   ScrollView,
   View,
   Text,
@@ -8,9 +7,13 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
+  StatusBar,
 } from 'react-native';
 import { getSdkStatus, SdkAvailabilityStatus, requestPermission } from 'react-native-health-connect';
+import { useSafeTopInset } from '../hooks/useSafeTopInset';
 import { useTrainerStore } from '../store/useTrainerStore';
+import { colors } from '../theme/colors';
+import { TopFadeOverlay } from '../components/macrofactor/TopFadeOverlay';
 
 const ACTIVITY_LEVELS = ['Sedentary', 'Light', 'Moderate', 'Active', 'Very Active'];
 const FITNESS_GOALS = [
@@ -28,18 +31,18 @@ const DIETARY_PREFS = [
 ];
 
 export const ProfileScreen: React.FC = () => {
-  const { userProfile, setUserProfile, refreshHealth } = useTrainerStore();
+  const { userProfile, saveProfile, refreshHealth } = useTrainerStore();
+  const topInset = useSafeTopInset();
 
   const [weight, setWeight] = useState(String(userProfile.weight_kg ?? ''));
   const [height, setHeight] = useState(String(userProfile.height_cm ?? ''));
   const [age, setAge] = useState(String(userProfile.age ?? ''));
   const [activityLevel, setActivityLevel] = useState(userProfile.activity_level ?? 'Moderate');
-  const [fitnessGoal, setFitnessGoal] = useState(userProfile.fitness_goal ?? '');
+  const [fitnessGoal, setFitnessGoal] = useState(userProfile.fitness_goal ?? 'hypertrophy');
   const [dietPref, setDietPref] = useState(userProfile.dietary_preference ?? 'omnivore');
   const [allergies, setAllergies] = useState((userProfile.allergies ?? []).join(', '));
   const [hcStatus, setHcStatus] = useState<string>('checking');
 
-  // Check HC status on mount
   React.useEffect(() => {
     getSdkStatus()
       .then(status => {
@@ -48,13 +51,13 @@ export const ProfileScreen: React.FC = () => {
       .catch(() => setHcStatus('unavailable'));
   }, []);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const allergyList = allergies
       .split(',')
       .map(a => a.trim())
       .filter(Boolean);
 
-    setUserProfile({
+    await saveProfile({
       ...userProfile,
       weight_kg: weight ? parseFloat(weight) : undefined,
       height_cm: height ? parseFloat(height) : undefined,
@@ -64,7 +67,7 @@ export const ProfileScreen: React.FC = () => {
       dietary_preference: dietPref,
       allergies: allergyList,
     });
-    Alert.alert('Profile Saved', 'Your preferences will be applied to all agent responses.');
+    Alert.alert('Profile Saved', 'Your anthropometrics and metabolic targets have been updated.');
   };
 
   const handleRequestPermissions = async () => {
@@ -98,6 +101,7 @@ export const ProfileScreen: React.FC = () => {
           key={opt.key}
           style={[styles.chip, selected === opt.key && styles.chipActive]}
           onPress={() => onSelect(opt.key)}
+          activeOpacity={0.7}
         >
           <Text style={[styles.chipText, selected === opt.key && styles.chipTextActive]}>
             {opt.label}
@@ -108,33 +112,45 @@ export const ProfileScreen: React.FC = () => {
   );
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.pageTitle}>Profile & Settings</Text>
+    <View style={styles.safe}>
+      <StatusBar barStyle="light-content" />
+      <TopFadeOverlay />
+      <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: topInset }]}>
+        <View style={styles.header}>
+          <Text style={styles.dateLabel}>SETTINGS & PREFERENCES</Text>
+          <Text style={styles.pageTitle}>More</Text>
+        </View>
 
-        {/* Health Connect Status */}
+        {/* Health Connect Status Card */}
         <View style={styles.hcCard}>
           <View style={styles.hcRow}>
             <Text style={styles.hcLabel}>Health Connect</Text>
-            <View style={[
-              styles.hcBadge,
-              { backgroundColor: hcStatus === 'available' ? '#e8f5e9' : '#fce4ec' },
-            ]}>
-              <Text style={[
-                styles.hcBadgeText,
-                { color: hcStatus === 'available' ? '#2e7d32' : '#c62828' },
-              ]}>
-                {hcStatus === 'available' ? '✓ Connected' : '✗ Unavailable'}
+            <View
+              style={[
+                styles.hcBadge,
+                { backgroundColor: hcStatus === 'available' ? colors.accentGreen + '22' : colors.accentOrange + '22' },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.hcBadgeText,
+                  { color: hcStatus === 'available' ? colors.accentGreen : colors.accentOrange },
+                ]}
+              >
+                {hcStatus === 'available' ? 'Connected' : 'Not Connected'}
               </Text>
             </View>
           </View>
-          <TouchableOpacity style={styles.permBtn} onPress={handleRequestPermissions}>
-            <Text style={styles.permBtnText}>Request Permissions</Text>
-          </TouchableOpacity>
+
+          {hcStatus !== 'available' && (
+            <TouchableOpacity style={styles.permBtn} onPress={handleRequestPermissions}>
+              <Text style={styles.permBtnText}>Connect Health Connect</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Biometrics */}
-        <SectionLabel label="Biometrics" />
+        <SectionLabel label="Anthropometrics" />
         <View style={styles.row}>
           <View style={styles.halfInput}>
             <Text style={styles.inputLabel}>Weight (kg)</Text>
@@ -143,8 +159,8 @@ export const ProfileScreen: React.FC = () => {
               value={weight}
               onChangeText={setWeight}
               keyboardType="decimal-pad"
-              placeholder="70"
-              placeholderTextColor="#ccc"
+              placeholder="75"
+              placeholderTextColor={colors.textSecondary}
             />
           </View>
           <View style={styles.halfInput}>
@@ -153,126 +169,153 @@ export const ProfileScreen: React.FC = () => {
               style={styles.input}
               value={height}
               onChangeText={setHeight}
-              keyboardType="decimal-pad"
-              placeholder="175"
-              placeholderTextColor="#ccc"
+              keyboardType="number-pad"
+              placeholder="178"
+              placeholderTextColor={colors.textSecondary}
+            />
+          </View>
+          <View style={styles.halfInput}>
+            <Text style={styles.inputLabel}>Age</Text>
+            <TextInput
+              style={styles.input}
+              value={age}
+              onChangeText={setAge}
+              keyboardType="number-pad"
+              placeholder="28"
+              placeholderTextColor={colors.textSecondary}
             />
           </View>
         </View>
-        <Text style={styles.inputLabel}>Age</Text>
-        <TextInput
-          style={styles.input}
-          value={age}
-          onChangeText={setAge}
-          keyboardType="number-pad"
-          placeholder="25"
-          placeholderTextColor="#ccc"
-        />
 
         {/* Activity Level */}
         <SectionLabel label="Activity Level" />
         <ChipSelect
-          options={ACTIVITY_LEVELS.map(l => ({ key: l, label: l }))}
-          selected={activityLevel}
-          onSelect={setActivityLevel}
+          options={ACTIVITY_LEVELS.map(a => ({ key: a.toLowerCase().replace(' ', '_'), label: a }))}
+          selected={activityLevel.toLowerCase().replace(' ', '_')}
+          onSelect={key => setActivityLevel(key)}
         />
 
         {/* Fitness Goal */}
         <SectionLabel label="Fitness Goal" />
-        <ChipSelect options={FITNESS_GOALS} selected={fitnessGoal} onSelect={setFitnessGoal} />
+        <ChipSelect
+          options={FITNESS_GOALS}
+          selected={fitnessGoal}
+          onSelect={setFitnessGoal}
+        />
 
         {/* Dietary Preference */}
         <SectionLabel label="Dietary Preference" />
-        <ChipSelect options={DIETARY_PREFS} selected={dietPref} onSelect={setDietPref} />
+        <ChipSelect
+          options={DIETARY_PREFS}
+          selected={dietPref}
+          onSelect={setDietPref}
+        />
 
         {/* Allergies */}
-        <SectionLabel label="Allergies / Intolerances (comma-separated)" />
+        <SectionLabel label="Allergies / Restrictions (comma-separated)" />
         <TextInput
           style={styles.input}
           value={allergies}
           onChangeText={setAllergies}
-          placeholder="e.g. peanuts, gluten"
-          placeholderTextColor="#ccc"
+          placeholder="e.g. peanuts, dairy, gluten"
+          placeholderTextColor={colors.textSecondary}
         />
 
-        {/* Save */}
+        {/* Save CTA */}
         <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.85}>
-          <Text style={styles.saveBtnText}>Save Profile</Text>
+          <Text style={styles.saveBtnText}>Save Preferences</Text>
         </TouchableOpacity>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#f8f9fa' },
-  scroll: { padding: 20, paddingBottom: 48 },
-  pageTitle: { fontSize: 22, fontWeight: '800', color: '#111', marginBottom: 20 },
-  hcCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 20,
-    elevation: 1,
+  safe: { flex: 1, backgroundColor: colors.appDark },
+  scroll: { paddingHorizontal: 20, paddingBottom: 110 },
+  header: { marginTop: 8, marginBottom: 16 },
+  dateLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    letterSpacing: 0.8,
   },
-  hcRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  hcLabel: { fontSize: 14, fontWeight: '600', color: '#333' },
-  hcBadge: { borderRadius: 12, paddingHorizontal: 10, paddingVertical: 3 },
-  hcBadgeText: { fontSize: 12, fontWeight: '600' },
-  permBtn: {
+  pageTitle: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: colors.textPrimary,
+    letterSpacing: -0.8,
+    marginTop: 2,
+  },
+  hcCard: {
+    backgroundColor: colors.cardBg,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#1a73e8',
-    borderRadius: 8,
-    paddingVertical: 8,
+    borderColor: colors.borderSubtle,
+  },
+  hcRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  hcLabel: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
+  hcBadge: { borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
+  hcBadgeText: { fontSize: 12, fontWeight: '700' },
+  permBtn: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: colors.accentBlue,
+    borderRadius: 10,
+    paddingVertical: 10,
     alignItems: 'center',
   },
-  permBtnText: { color: '#1a73e8', fontSize: 13, fontWeight: '600' },
+  permBtnText: { color: colors.accentBlue, fontSize: 13, fontWeight: '600' },
   sectionLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
-    color: '#888',
+    color: colors.textSecondary,
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 0.8,
     marginTop: 20,
     marginBottom: 8,
   },
-  row: { flexDirection: 'row', gap: 12 },
+  row: { flexDirection: 'row', gap: 10 },
   halfInput: { flex: 1 },
-  inputLabel: { fontSize: 12, color: '#888', marginBottom: 4 },
+  inputLabel: { fontSize: 11, color: colors.textSecondary, marginBottom: 4 },
   input: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
+    backgroundColor: colors.cardBg,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: colors.borderSubtle,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 12,
     fontSize: 14,
-    color: '#111',
-    marginBottom: 4,
+    color: colors.textPrimary,
   },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.cardBg,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: colors.borderSubtle,
     paddingHorizontal: 14,
-    paddingVertical: 7,
+    paddingVertical: 8,
   },
-  chipActive: { backgroundColor: '#1a73e8', borderColor: '#1a73e8' },
-  chipText: { fontSize: 12, color: '#555', fontWeight: '500' },
-  chipTextActive: { color: '#fff', fontWeight: '700' },
+  chipActive: {
+    backgroundColor: colors.textPrimary,
+    borderColor: colors.textPrimary,
+  },
+  chipText: { fontSize: 12, color: colors.textSecondary, fontWeight: '500' },
+  chipTextActive: { color: colors.textDark, fontWeight: '700' },
   saveBtn: {
-    backgroundColor: '#1a73e8',
-    borderRadius: 12,
+    backgroundColor: colors.textPrimary,
+    borderRadius: 14,
     paddingVertical: 15,
     alignItems: 'center',
-    marginTop: 28,
-    elevation: 3,
-    shadowColor: '#1a73e8',
+    marginTop: 32,
+    shadowColor: '#ffffff',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  saveBtnText: { color: colors.textDark, fontSize: 15, fontWeight: '700' },
 });

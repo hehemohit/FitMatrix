@@ -17,6 +17,8 @@ from app.models.documents import (
     DailyMetricDocument, NutritionLogDocument, MealEntry, PlanArtifactDocument
 )
 
+from app.api.fitness import router as fitness_router
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version="1.0.0",
@@ -32,6 +34,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(fitness_router)
 
 class ChatHistoryItem(BaseModel):
     role: str  # 'user' | 'coach'

@@ -135,3 +135,98 @@ class PlanArtifactDocument(Document):
     class Settings:
         name = "plan_artifacts"
         indexes = [[("user_id", 1), ("plan_type", 1)]]
+
+
+class WorkoutItem(BaseModel):
+    """A single logged workout within a daily log."""
+    workout_id: str = Field(default_factory=lambda: f"w_{uuid.uuid4().hex[:6]}")
+    activity_type: str = "Strength Training"
+    calories_burned: int = 0
+    duration_minutes: int = 0
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+class DailyLogDocument(Document):
+    """
+    Collection: daily_logs
+    Unified document per user per calendar day.
+    Stores daily totals, embedded meal entries, workouts, and morning weigh-ins.
+    Compound unique index on (user_id, date_id) enables lazy initialization
+    and fast range lookups for 30-day habits and calendar heatmaps.
+    """
+    user_id: Annotated[str, Indexed()]
+    date_id: Annotated[str, Indexed()]              # YYYY-MM-DD in client's local timezone
+    calorie_goal: int = 2400
+    protein_goal_g: int = 160
+    total_calories_consumed: int = 0
+    total_protein_g: int = 0
+    total_carbs_g: int = 0
+    total_fats_g: int = 0
+    total_calories_burned: int = 0
+    scale_weight_kg: Optional[float] = None
+    meals: List[MealEntry] = Field(default_factory=list)
+    workout_logs: List[WorkoutItem] = Field(default_factory=list)
+    is_completed: bool = False
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Settings:
+        name = "daily_logs"
+        indexes = [
+            [("user_id", 1), ("date_id", 1)],  # Compound index for user + date
+        ]
+
+
+class DayMacroTarget(BaseModel):
+    """Macro distribution for a specific day of the week."""
+    day: str = "mon"                     # mon | tue | wed | thu | fri | sat | sun
+    is_training_day: bool = False
+    calories: int = 2400
+    protein_g: int = 160
+    carbs_g: int = 250
+    fats_g: int = 70
+
+
+class StrategyProfileDocument(Document):
+    """
+    Collection: strategy_profiles
+    Command center configuration for goals, coaching modes, macro programs,
+    and metabolic expenditure trends.
+    """
+    user_id: Annotated[str, Indexed(unique=True)]
+
+    # 1. Goal Configuration
+    goal_type: str = "fat_loss"                  # fat_loss | maintenance | muscle_gain
+    target_weight_kg: float = 75.0
+    starting_weight_kg: float = 82.0
+    current_weight_kg: float = 78.4
+    weekly_rate_percent: float = -0.75           # % of bodyweight per week (negative for cut)
+    weekly_weight_delta_kg: float = -0.55        # derived kg/week
+    estimated_completion_date: Optional[str] = None  # YYYY-MM-DD
+    weeks_to_goal: Optional[float] = None
+
+    # 2. Coaching Mode
+    coaching_mode: str = "coached"               # coached | collaborative | manual
+    check_in_day: str = "monday"
+    last_check_in_date: Optional[str] = None
+
+    # 3. Macro Program Customization
+    diet_style: str = "balanced"                 # balanced | low_carb | keto | high_protein
+    protein_preference: str = "moderate"         # low | moderate | high
+    use_day_variation: bool = False              # Training Day vs Rest Day cycling
+    schedule_targets: List[DayMacroTarget] = Field(default_factory=list)
+
+    # 4. Expenditure & History
+    current_expenditure_tdee: int = 2640
+    expenditure_trend_delta: int = 65            # +65 kcal/week
+    expenditure_history_14d: List[int] = Field(
+        default_factory=lambda: [2520, 2530, 2550, 2570, 2560, 2580, 2600, 2610, 2590, 2620, 2635, 2640, 2645, 2640]
+    )
+
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Settings:
+        name = "strategy_profiles"
+
+

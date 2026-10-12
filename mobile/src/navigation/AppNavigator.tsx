@@ -1,86 +1,87 @@
-import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Text, StyleSheet } from 'react-native';
-
+import React, { useState } from 'react';
+import { View, StyleSheet } from 'react-native';
 import { DashboardScreen } from '../screens/DashboardScreen';
-import { AgentChatScreen } from '../screens/AgentChatScreen';
-import { PlansStudioScreen } from '../screens/PlansStudioScreen';
+import { FoodLogScreen } from '../screens/FoodLogScreen';
+import { StrategyScreen } from '../screens/StrategyScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
+import { SwipeableScreenPager } from './SwipeableScreenPager';
+import { CustomTabBar } from './CustomTabBar';
+import { QuickActionModal } from '../components/macrofactor/QuickActionModal';
+import { MealEntryModal } from '../components/MealEntryModal';
+import { WeighInModal } from '../components/macrofactor/WeighInModal';
+import { useTrainerStore } from '../store/useTrainerStore';
+import { colors } from '../theme/colors';
 
-export type RootTabParamList = {
-  Dashboard: undefined;
-  Chat: undefined;
-  Plans: undefined;
-  Profile: undefined;
+export const AppNavigator: React.FC = () => {
+  const { logMeal, weighIn, userProfile } = useTrainerStore();
+
+  const [activeTab, setActiveTab] = useState(0);
+  const [quickActionVisible, setQuickActionVisible] = useState(false);
+  const [mealModalVisible, setMealModalVisible] = useState(false);
+  const [weighInModalVisible, setWeighInModalVisible] = useState(false);
+
+  const handleSelectQuickAction = (action: 'meal' | 'weight' | 'workout') => {
+    if (action === 'meal') {
+      setMealModalVisible(true);
+    } else if (action === 'weight') {
+      setWeighInModalVisible(true);
+    }
+  };
+
+  const screens = React.useMemo(
+    () => [
+      <DashboardScreen key="dashboard-screen" />,
+      <FoodLogScreen key="foodlog-screen" />,
+      <StrategyScreen key="strategy-screen" />,
+      <ProfileScreen key="profile-screen" />,
+    ],
+    []
+  );
+
+  return (
+    <View style={styles.container}>
+      {/* WhatsApp-Style Horizontal Gesture Pager */}
+      <SwipeableScreenPager
+        screens={screens}
+        currentIndex={activeTab}
+        onIndexChange={setActiveTab}
+      />
+
+      {/* Synchronized Custom Bottom Tab Bar */}
+      <CustomTabBar
+        currentIndex={activeTab}
+        onSelectIndex={setActiveTab}
+        onFabPress={() => setQuickActionVisible(true)}
+      />
+
+      {/* Floating Center (+) Action Sheet */}
+      <QuickActionModal
+        visible={quickActionVisible}
+        onClose={() => setQuickActionVisible(false)}
+        onSelectAction={handleSelectQuickAction}
+      />
+
+      {/* Quick Meal Entry Modal */}
+      <MealEntryModal
+        visible={mealModalVisible}
+        onClose={() => setMealModalVisible(false)}
+        onLog={logMeal}
+      />
+
+      {/* Daily Weigh-In Modal */}
+      <WeighInModal
+        visible={weighInModalVisible}
+        onClose={() => setWeighInModalVisible(false)}
+        onSave={weighIn}
+        initialWeight={userProfile.weight_kg}
+      />
+    </View>
+  );
 };
 
-const Tab = createBottomTabNavigator<RootTabParamList>();
-
-const TabIcon: React.FC<{ label: string; focused: boolean }> = ({ label, focused }) => (
-  <Text style={[styles.icon, focused && styles.iconFocused]}>{label}</Text>
-);
-
-export const AppNavigator: React.FC = () => (
-  <NavigationContainer>
-    <Tab.Navigator
-      screenOptions={{
-        headerShown: true,
-        headerStyle: { backgroundColor: '#ffffff', elevation: 0, shadowOpacity: 0 },
-        headerTitleStyle: { fontSize: 17, fontWeight: '700', color: '#111' },
-        tabBarStyle: {
-          backgroundColor: '#ffffff',
-          borderTopWidth: 1,
-          borderTopColor: '#f0f0f0',
-          height: 60,
-          paddingBottom: 8,
-        },
-        tabBarActiveTintColor: '#1a73e8',
-        tabBarInactiveTintColor: '#aaa',
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
-      }}
-    >
-      <Tab.Screen
-        name="Dashboard"
-        component={DashboardScreen}
-        options={{
-          title: 'FitMatrix',
-          tabBarLabel: 'Dashboard',
-          tabBarIcon: ({ focused }) => <TabIcon label="📊" focused={focused} />,
-        }}
-      />
-      <Tab.Screen
-        name="Chat"
-        component={AgentChatScreen}
-        options={{
-          title: 'Agent Hub',
-          tabBarLabel: 'Agent Hub',
-          tabBarIcon: ({ focused }) => <TabIcon label="🤖" focused={focused} />,
-        }}
-      />
-      <Tab.Screen
-        name="Plans"
-        component={PlansStudioScreen}
-        options={{
-          title: 'Plan Studio',
-          tabBarLabel: 'Plan Studio',
-          tabBarIcon: ({ focused }) => <TabIcon label="📋" focused={focused} />,
-        }}
-      />
-      <Tab.Screen
-        name="Profile"
-        component={ProfileScreen}
-        options={{
-          title: 'Profile',
-          tabBarLabel: 'Profile',
-          tabBarIcon: ({ focused }) => <TabIcon label="👤" focused={focused} />,
-        }}
-      />
-    </Tab.Navigator>
-  </NavigationContainer>
-);
-
 const styles = StyleSheet.create({
-  icon: { fontSize: 20, opacity: 0.6 },
-  iconFocused: { opacity: 1 },
+  container: {
+    flex: 1,
+    backgroundColor: colors.appDark,
+  },
 });

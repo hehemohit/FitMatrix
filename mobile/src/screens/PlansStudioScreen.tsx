@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  SafeAreaView,
   ScrollView,
   View,
   Text,
@@ -8,8 +7,10 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  StatusBar,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeTopInset } from '../hooks/useSafeTopInset';
 import { useTrainerStore } from '../store/useTrainerStore';
 import { StructuredPlanCard } from '../components/cards/StructuredPlanCard';
 
@@ -46,6 +47,7 @@ export const PlansStudioScreen: React.FC = () => {
   const navigation = useNavigation();
   const { workoutPlan, dietPlan, sleepGoal, planLoading, generatePlan } = useTrainerStore();
   const [activeTab, setActiveTab] = useState<PlanTab>('workouts');
+  const topInset = useSafeTopInset(8);
 
   const tabToType: Record<PlanTab, 'workout' | 'diet' | 'sleep'> = {
     workouts: 'workout',
@@ -83,7 +85,8 @@ export const PlansStudioScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <View style={[styles.safe, { paddingTop: topInset }]}>
+      <StatusBar barStyle="light-content" />
       {/* Plan Tabs */}
       <View style={styles.tabBar}>
         {TABS.map(tab => (
@@ -127,7 +130,7 @@ export const PlansStudioScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
       )}
-    </SafeAreaView>
+    </View>
   );
 };
 

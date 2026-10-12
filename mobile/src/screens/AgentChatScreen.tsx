@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
 import {
-  SafeAreaView,
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
   Alert,
+  StatusBar,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeTopInset } from '../hooks/useSafeTopInset';
 import { useTrainerStore } from '../store/useTrainerStore';
 import { ChatView } from '../components/ChatView';
 
@@ -24,6 +25,7 @@ export const AgentChatScreen: React.FC = () => {
   const navigation = useNavigation();
   const { messages, loading, planLoading, sendMessage, generatePlan } = useTrainerStore();
   const [activeTab, setActiveTab] = useState<AgentMode>('workout');
+  const topInset = useSafeTopInset(8);
 
   const handleGeneratePlan = async () => {
     const success = await generatePlan(activeTab);
@@ -39,7 +41,8 @@ export const AgentChatScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <View style={[styles.safe, { paddingTop: topInset }]}>
+      <StatusBar barStyle="light-content" />
       {/* Agent Workspace Tabs */}
       <View style={styles.tabBar}>
         {AGENT_TABS.map(tab => (
@@ -81,7 +84,7 @@ export const AgentChatScreen: React.FC = () => {
           )}
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </View>
   );
 };
 

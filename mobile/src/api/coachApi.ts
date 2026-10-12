@@ -234,6 +234,72 @@ export const syncProfileToServer = async (
 // ─── Weigh-In ─────────────────────────────────────────────────────────────────
 
 export const logWeighIn = async (userId: string, weightKg: number): Promise<void> => {
-  const today = new Date().toISOString().split('T')[0];
-  await apiClient.post('/api/v1/metrics/weigh-in', { user_id: userId, date: today, scale_weight_kg: weightKg });
+  const tzOffset = new Date().getTimezoneOffset();
+  await apiClient.post('/api/v1/fitness/weigh-in', {
+    user_id: userId,
+    scale_weight_kg: weightKg,
+    tz_offset: tzOffset,
+  });
 };
+
+// ─── Unified Fitness & Habits API ─────────────────────────────────────────────
+
+export interface TodayFitnessData {
+  date_id: string;
+  calorie_goal: number;
+  protein_goal_g: number;
+  total_calories_consumed: number;
+  total_protein_g: number;
+  total_carbs_g: number;
+  total_fats_g: number;
+  total_calories_burned: number;
+  scale_weight_kg: number | null;
+  meals: MealItem[];
+  is_completed: boolean;
+}
+
+export interface HabitsHistoryData {
+  days: number;
+  weigh_in_history: boolean[];
+  weigh_in_stat: string;
+  food_log_history: boolean[];
+  food_log_stat: string;
+}
+
+export const getTodayFitness = async (userId = 'usr_dev_1'): Promise<TodayFitnessData> => {
+  const tzOffset = new Date().getTimezoneOffset();
+  const { data } = await apiClient.get<{ success: boolean; data: TodayFitnessData }>(
+    '/api/v1/fitness/today',
+    { params: { user_id: userId, tz_offset: tzOffset } }
+  );
+  return data.data;
+};
+
+export const getHabitsHistory = async (userId = 'usr_dev_1', days = 28): Promise<HabitsHistoryData> => {
+  const tzOffset = new Date().getTimezoneOffset();
+  const { data } = await apiClient.get<{ success: boolean; data: HabitsHistoryData }>(
+    '/api/v1/fitness/history',
+    { params: { user_id: userId, days, tz_offset: tzOffset } }
+  );
+  return data.data;
+};
+
+export const logFitnessMeal = async (userId: string, meal: MealItem): Promise<TodayFitnessData> => {
+  const tzOffset = new Date().getTimezoneOffset();
+  const { data } = await apiClient.post<{ success: boolean; data: TodayFitnessData }>(
+    '/api/v1/fitness/food-log',
+    {
+      user_id: userId,
+      name: meal.name,
+      category: meal.category,
+      time: meal.time,
+      calories: meal.calories,
+      protein_g: meal.protein_g,
+      carbs_g: meal.carbs_g,
+      fats_g: meal.fats_g,
+      tz_offset: tzOffset,
+    }
+  );
+  return data.data;
+};
+

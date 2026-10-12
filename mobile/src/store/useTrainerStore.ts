@@ -16,7 +16,17 @@ import {
 } from '../types/schema';
 import { WorkoutPlan, DietPlan, SleepGoal } from '../types/plans';
 import { HealthSnapshot } from '../services/healthService';
-import { sendBiometricsAndMessage, computeReadiness, logMealToServer, getTodayNutrition, syncProfileToServer } from '../api/coachApi';
+import {
+  sendBiometricsAndMessage,
+  computeReadiness,
+  logMealToServer,
+  getTodayNutrition,
+  syncProfileToServer,
+  logWeighIn,
+  getTodayFitness,
+  getHabitsHistory,
+  logFitnessMeal,
+} from '../api/coachApi';
 import type { MealItem } from '../api/coachApi';
 import {
   generateWorkoutPlan,
@@ -75,6 +85,12 @@ interface TrainerState {
   // ── Nutrition ──
   todayMeals: MealItem[];
 
+  // ── Habits (Dynamic 28-Day Consistency) ──
+  weighInHistory: boolean[];
+  weighInStat: string;
+  foodLogHistory: boolean[];
+  foodLogStat: string;
+
   // ── Persistent (MMKV) ──
   userProfile: UserProfile;
   dailyLog: DailyLog;
@@ -92,6 +108,8 @@ interface TrainerState {
   saveProfile: (profile: UserProfile) => Promise<void>;
   logMeal: (meal: MealItem) => Promise<void>;
   syncTodayNutrition: () => Promise<void>;
+  syncHabitsHistory: () => Promise<void>;
+  weighIn: (weightKg: number) => Promise<void>;
   resetChat: () => void;
 }
 
@@ -112,6 +130,11 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
   todayMeals: [],
 
   // Hydrate persistent state from MMKV on store creation
+  weighInHistory: hydrate<boolean[]>('weigh_in_history', Array(28).fill(false)),
+  weighInStat: hydrate<string>('weigh_in_stat', '0/7'),
+  foodLogHistory: hydrate<boolean[]>('food_log_history', Array(28).fill(false)),
+  foodLogStat: hydrate<string>('food_log_stat', '0/7'),
+
   userProfile: hydrate<UserProfile>('user_profile', {}),
   dailyLog: hydrate<DailyLog>('daily_log', {}),
   metabolicTargets: hydrate<MetabolicTargets>('metabolic_targets', {
@@ -368,38 +391,105 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
     };
     const updatedMeals = [...get().todayMeals, meal];
 
+    // Optimistically activate today's dot in foodLogHistory (last element)
+    const currentFoodHistory = [...get().foodLogHistory];
+    if (currentFoodHistory.length > 0) {
+      currentFoodHistory[currentFoodHistory.length - 1] = true;
+    }
+    const foodCount = currentFoodHistory.slice(-7).filter(Boolean).length;
+    const newFoodStat = `${foodCount}/7`;
+
     persist('daily_log', updatedLog);
-    set({ dailyLog: updatedLog, todayMeals: updatedMeals, mealLoading: false });
+    persist('food_log_history', currentFoodHistory);
+    persist('food_log_stat', newFoodStat);
+
+    set({
+      dailyLog: updatedLog,
+      todayMeals: updatedMeals,
+      foodLogHistory: currentFoodHistory,
+      foodLogStat: newFoodStat,
+      mealLoading: false,
+    });
 
     // 2. Background sync to MongoDB Atlas
     try {
-      const serverDay = await logMealToServer('usr_dev_1', meal);
-      // Reconcile local state with server totals
+      const serverDay = await logFitnessMeal('usr_dev_1', meal);
       const reconciledLog: DailyLog = {
         ...get().dailyLog,
-        calories_logged: serverDay.total_calories,
+        calories_logged: serverDay.total_calories_consumed,
         protein_logged_g: serverDay.total_protein_g,
       };
       persist('daily_log', reconciledLog);
-      set({ dailyLog: reconciledLog, todayMeals: serverDay.meals as MealItem[] });
+      set({ dailyLog: reconciledLog, todayMeals: serverDay.meals });
     } catch (err) {
       console.warn('[logMeal] Server sync failed (offline?). Local state preserved:', err);
     }
   },
 
-  // ── syncTodayNutrition: fetches today's meals from MongoDB on app open ──
+  // ── syncHabitsHistory: queries 28-day habits consistency for Weigh-In and Food Logging ──
+  syncHabitsHistory: async () => {
+    try {
+      const habits = await getHabitsHistory('usr_dev_1', 28);
+      persist('weigh_in_history', habits.weigh_in_history);
+      persist('weigh_in_stat', habits.weigh_in_stat);
+      persist('food_log_history', habits.food_log_history);
+      persist('food_log_stat', habits.food_log_stat);
+      set({
+        weighInHistory: habits.weigh_in_history,
+        weighInStat: habits.weigh_in_stat,
+        foodLogHistory: habits.food_log_history,
+        foodLogStat: habits.food_log_stat,
+      });
+    } catch (err) {
+      console.warn('[syncHabitsHistory] Error:', err);
+    }
+  },
+
+  // ── syncTodayNutrition: fetches today's unified fitness doc + habits on app open ──
   syncTodayNutrition: async () => {
     try {
-      const serverDay = await getTodayNutrition('usr_dev_1');
+      const todayData = await getTodayFitness('usr_dev_1');
       const updatedLog: DailyLog = {
         ...get().dailyLog,
-        calories_logged: serverDay.total_calories,
-        protein_logged_g: serverDay.total_protein_g,
+        calories_logged: todayData.total_calories_consumed,
+        protein_logged_g: todayData.total_protein_g,
       };
       persist('daily_log', updatedLog);
-      set({ dailyLog: updatedLog, todayMeals: serverDay.meals as MealItem[] });
+      set({ dailyLog: updatedLog, todayMeals: todayData.meals });
+
+      // Reconcile habits history
+      get().syncHabitsHistory();
     } catch (err) {
       console.warn('[syncTodayNutrition] Could not fetch from server. Using local log:', err);
+    }
+  },
+
+  // ── weighIn: optimistic update + MMKV + MongoDB Atlas background sync ──
+  weighIn: async (weightKg: number) => {
+    const updatedProfile = { ...get().userProfile, weight_kg: weightKg };
+    persist('user_profile', updatedProfile);
+
+    // Optimistically activate today's dot in weighInHistory (last element)
+    const currentWeighHistory = [...get().weighInHistory];
+    if (currentWeighHistory.length > 0) {
+      currentWeighHistory[currentWeighHistory.length - 1] = true;
+    }
+    const weighCount = currentWeighHistory.slice(-7).filter(Boolean).length;
+    const newWeighStat = `${weighCount}/7`;
+
+    persist('weigh_in_history', currentWeighHistory);
+    persist('weigh_in_stat', newWeighStat);
+
+    set({
+      userProfile: updatedProfile,
+      weighInHistory: currentWeighHistory,
+      weighInStat: newWeighStat,
+    });
+
+    try {
+      await logWeighIn('usr_dev_1', weightKg);
+    } catch (err) {
+      console.warn('[weighIn] Server sync failed (offline?):', err);
     }
   },
 

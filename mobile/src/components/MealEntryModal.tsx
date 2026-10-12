@@ -324,11 +324,11 @@ const MacroInput: React.FC<MacroInputProps> = ({ label, unit, value, onChange, h
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const ACCENT = '#6C63FF';
-const SURFACE = '#1C1B2E';
-const CARD = '#252438';
-const TEXT = '#F0EEFF';
-const MUTED = '#8B88B0';
+const ACCENT = '#4b88eb';
+const SURFACE = '#1c1c1e';
+const CARD = '#242426';
+const TEXT = '#ffffff';
+const MUTED = '#808288';
 
 const styles = StyleSheet.create({
   backdrop: {
