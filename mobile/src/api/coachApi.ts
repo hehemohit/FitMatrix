@@ -1,5 +1,15 @@
 import axios from 'axios';
-import { BiometricPayload, CoachResponse } from '../types/schema';
+import {
+  BiometricPayload,
+  CoachResponse,
+  StrategyProfile,
+  DayMacroTarget,
+  GoalType,
+  CoachingMode,
+  DietStyle,
+  ProteinPreference,
+  CheckInResult,
+} from '../types/schema';
 import { WorkoutPlan, DietPlan, SleepGoal } from '../types/plans';
 
 // Set to deployed Render URL for production, or empty string for local development with adb reverse:
@@ -301,5 +311,112 @@ export const logFitnessMeal = async (userId: string, meal: MealItem): Promise<To
     }
   );
   return data.data;
+};
+
+// ─── Strategy Command Center API ─────────────────────────────────────────────
+
+export const getStrategyProfile = async (userId = 'usr_dev_1'): Promise<StrategyProfile> => {
+  const { data } = await apiClient.get<{ success: boolean; data: StrategyProfile }>(
+    '/api/v1/strategy/profile',
+    { params: { user_id: userId } }
+  );
+  return data.data;
+};
+
+export const updateStrategyGoal = async (params: {
+  userId?: string;
+  goal_type: GoalType;
+  target_weight_kg: number;
+  starting_weight_kg?: number;
+  current_weight_kg?: number;
+  weekly_rate_percent: number;
+}): Promise<StrategyProfile> => {
+  const { data } = await apiClient.put<{ success: boolean; data: StrategyProfile }>(
+    '/api/v1/strategy/goal',
+    {
+      user_id: params.userId || 'usr_dev_1',
+      goal_type: params.goal_type,
+      target_weight_kg: params.target_weight_kg,
+      starting_weight_kg: params.starting_weight_kg,
+      current_weight_kg: params.current_weight_kg,
+      weekly_rate_percent: params.weekly_rate_percent,
+    }
+  );
+  return data.data;
+};
+
+export const updateStrategyMode = async (
+  userId = 'usr_dev_1',
+  coachingMode: CoachingMode
+): Promise<StrategyProfile> => {
+  const { data } = await apiClient.put<{ success: boolean; data: StrategyProfile }>(
+    '/api/v1/strategy/mode',
+    {
+      user_id: userId,
+      coaching_mode: coachingMode,
+    }
+  );
+  return data.data;
+};
+
+export const updateDietStyle = async (params: {
+  userId?: string;
+  diet_style: DietStyle;
+  protein_preference?: ProteinPreference;
+  use_day_variation?: boolean;
+  training_days?: string[];
+}): Promise<StrategyProfile> => {
+  const { data } = await apiClient.put<{ success: boolean; data: StrategyProfile }>(
+    '/api/v1/strategy/diet-style',
+    {
+      user_id: params.userId || 'usr_dev_1',
+      diet_style: params.diet_style,
+      protein_preference: params.protein_preference || 'moderate',
+      use_day_variation: params.use_day_variation ?? false,
+      training_days: params.training_days,
+    }
+  );
+  return data.data;
+};
+
+export const updateScheduleTargets = async (
+  userId = 'usr_dev_1',
+  scheduleTargets: DayMacroTarget[]
+): Promise<StrategyProfile> => {
+  const { data } = await apiClient.put<{ success: boolean; data: StrategyProfile }>(
+    '/api/v1/strategy/schedule',
+    {
+      user_id: userId,
+      schedule_targets: scheduleTargets,
+    }
+  );
+  return data.data;
+};
+
+export const updateManualTargets = async (
+  userId = 'usr_dev_1',
+  targets: {
+    target_calories: number;
+    target_protein_g: number;
+    target_carbs_g: number;
+    target_fats_g: number;
+  }
+): Promise<StrategyProfile> => {
+  const { data } = await apiClient.put<{ success: boolean; data: StrategyProfile }>(
+    '/api/v1/strategy/manual-targets',
+    {
+      user_id: userId,
+      ...targets,
+    }
+  );
+  return data.data;
+};
+
+export const performWeeklyCheckIn = async (userId = 'usr_dev_1'): Promise<CheckInResult> => {
+  const { data } = await apiClient.post<CheckInResult>(
+    '/api/v1/strategy/check-in',
+    { user_id: userId }
+  );
+  return data;
 };
 

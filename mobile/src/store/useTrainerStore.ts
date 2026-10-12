@@ -13,6 +13,13 @@ import {
   UserProfile,
   DailyLog,
   ChatHistoryItem,
+  StrategyProfile,
+  DayMacroTarget,
+  GoalType,
+  CoachingMode,
+  DietStyle,
+  ProteinPreference,
+  CheckInResult,
 } from '../types/schema';
 import { WorkoutPlan, DietPlan, SleepGoal } from '../types/plans';
 import { HealthSnapshot } from '../services/healthService';
@@ -26,6 +33,13 @@ import {
   getTodayFitness,
   getHabitsHistory,
   logFitnessMeal,
+  getStrategyProfile,
+  updateStrategyGoal,
+  updateStrategyMode,
+  updateDietStyle as apiUpdateDietStyle,
+  updateScheduleTargets as apiUpdateScheduleTargets,
+  updateManualTargets as apiUpdateManualTargets,
+  performWeeklyCheckIn as apiPerformWeeklyCheckIn,
 } from '../api/coachApi';
 import type { MealItem } from '../api/coachApi';
 import {
@@ -99,6 +113,13 @@ interface TrainerState {
   dietPlan: DietPlan | null;
   sleepGoal: SleepGoal | null;
 
+  // ── Strategy Command Center ──
+  strategyLoading: boolean;
+  checkInLoading: boolean;
+  lastCheckInResult: CheckInResult | null;
+  checkInModalVisible: boolean;
+  strategyProfile: StrategyProfile | null;
+
   // ── Actions ──
   sendMessage: (text: string, contextDomain?: string) => Promise<void>;
   generatePlan: (type: 'workout' | 'diet' | 'sleep') => Promise<boolean>;
@@ -111,6 +132,32 @@ interface TrainerState {
   syncHabitsHistory: () => Promise<void>;
   weighIn: (weightKg: number) => Promise<void>;
   resetChat: () => void;
+
+  // Strategy Actions
+  fetchStrategyProfile: () => Promise<void>;
+  updateGoal: (params: {
+    goal_type: GoalType;
+    target_weight_kg: number;
+    starting_weight_kg?: number;
+    current_weight_kg?: number;
+    weekly_rate_percent: number;
+  }) => Promise<void>;
+  setCoachingMode: (mode: CoachingMode) => Promise<void>;
+  setDietStyle: (params: {
+    diet_style: DietStyle;
+    protein_preference?: ProteinPreference;
+    use_day_variation?: boolean;
+    training_days?: string[];
+  }) => Promise<void>;
+  setScheduleTargets: (schedule: DayMacroTarget[]) => Promise<void>;
+  setManualTargets: (targets: {
+    target_calories: number;
+    target_protein_g: number;
+    target_carbs_g: number;
+    target_fats_g: number;
+  }) => Promise<void>;
+  runWeeklyCheckIn: () => Promise<CheckInResult | null>;
+  setCheckInModalVisible: (visible: boolean) => void;
 }
 
 // ─── Store Implementation ─────────────────────────────────────────────────────
@@ -128,6 +175,10 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
   readinessLoading: false,
   planLoading: false,
   todayMeals: [],
+  strategyLoading: false,
+  checkInLoading: false,
+  lastCheckInResult: null,
+  checkInModalVisible: false,
 
   // Hydrate persistent state from MMKV on store creation
   weighInHistory: hydrate<boolean[]>('weigh_in_history', Array(28).fill(false)),
@@ -147,6 +198,7 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
   workoutPlan: hydrate<WorkoutPlan | null>('workout_plan', null),
   dietPlan: hydrate<DietPlan | null>('diet_plan', null),
   sleepGoal: hydrate<SleepGoal | null>('sleep_goal', null),
+  strategyProfile: hydrate<StrategyProfile | null>('strategy_profile', null),
 
   // ── _applyReadiness: fires /api/v1/readiness from a fresh snapshot ──
   // Internal helper — always call after updating healthSnapshot
@@ -499,5 +551,159 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
       messages: [{ sender: 'coach', text: 'FitMatrix initialized. How can I guide your training today?' }],
       coachState: { readiness_score: 80, fatigue_flag: 'nominal', prescribed_workout: null },
     });
+  },
+
+  // ── Strategy Command Center Actions ──
+
+  fetchStrategyProfile: async () => {
+    set({ strategyLoading: true });
+    try {
+      const profile = await getStrategyProfile('usr_dev_1');
+      if (profile) {
+        persist('strategy_profile', profile);
+        const updatedTargets: MetabolicTargets = {
+          ...get().metabolicTargets,
+          tdee: profile.current_expenditure_tdee,
+          target_calories: profile.target_calories,
+          target_protein_g: profile.target_protein_g,
+          target_carbs_g: profile.target_carbs_g,
+          target_fats_g: profile.target_fats_g,
+        };
+        persist('metabolic_targets', updatedTargets);
+        set({ strategyProfile: profile, metabolicTargets: updatedTargets });
+      }
+    } catch (err) {
+      console.warn('[fetchStrategyProfile] Failed to fetch strategy profile:', err);
+    } finally {
+      set({ strategyLoading: false });
+    }
+  },
+
+  updateGoal: async (params) => {
+    set({ strategyLoading: true });
+    try {
+      const updated = await updateStrategyGoal(params);
+      persist('strategy_profile', updated);
+      const updatedTargets: MetabolicTargets = {
+        ...get().metabolicTargets,
+        target_calories: updated.target_calories,
+        target_protein_g: updated.target_protein_g,
+        target_carbs_g: updated.target_carbs_g,
+        target_fats_g: updated.target_fats_g,
+      };
+      persist('metabolic_targets', updatedTargets);
+      set({ strategyProfile: updated, metabolicTargets: updatedTargets });
+    } catch (err) {
+      console.warn('[updateGoal] Failed to update goal:', err);
+    } finally {
+      set({ strategyLoading: false });
+    }
+  },
+
+  setCoachingMode: async (mode: CoachingMode) => {
+    const cur = get().strategyProfile;
+    if (cur) {
+      const optimistic = { ...cur, coaching_mode: mode };
+      set({ strategyProfile: optimistic });
+    }
+    try {
+      const updated = await updateStrategyMode('usr_dev_1', mode);
+      persist('strategy_profile', updated);
+      set({ strategyProfile: updated });
+    } catch (err) {
+      console.warn('[setCoachingMode] Error updating coaching mode:', err);
+    }
+  },
+
+  setDietStyle: async (params) => {
+    set({ strategyLoading: true });
+    try {
+      const updated = await apiUpdateDietStyle(params);
+      persist('strategy_profile', updated);
+      const updatedTargets: MetabolicTargets = {
+        ...get().metabolicTargets,
+        target_calories: updated.target_calories,
+        target_protein_g: updated.target_protein_g,
+        target_carbs_g: updated.target_carbs_g,
+        target_fats_g: updated.target_fats_g,
+      };
+      persist('metabolic_targets', updatedTargets);
+      set({ strategyProfile: updated, metabolicTargets: updatedTargets });
+    } catch (err) {
+      console.warn('[setDietStyle] Failed to update diet style:', err);
+    } finally {
+      set({ strategyLoading: false });
+    }
+  },
+
+  setScheduleTargets: async (schedule: DayMacroTarget[]) => {
+    const cur = get().strategyProfile;
+    if (cur) {
+      const optimistic = { ...cur, schedule_targets: schedule };
+      set({ strategyProfile: optimistic });
+    }
+    try {
+      const updated = await apiUpdateScheduleTargets('usr_dev_1', schedule);
+      persist('strategy_profile', updated);
+      set({ strategyProfile: updated });
+    } catch (err) {
+      console.warn('[setScheduleTargets] Failed to update schedule:', err);
+    }
+  },
+
+  setManualTargets: async (targets) => {
+    set({ strategyLoading: true });
+    try {
+      const updated = await apiUpdateManualTargets('usr_dev_1', targets);
+      persist('strategy_profile', updated);
+      const updatedTargets: MetabolicTargets = {
+        ...get().metabolicTargets,
+        target_calories: targets.target_calories,
+        target_protein_g: targets.target_protein_g,
+        target_carbs_g: targets.target_carbs_g,
+        target_fats_g: targets.target_fats_g,
+      };
+      persist('metabolic_targets', updatedTargets);
+      set({ strategyProfile: updated, metabolicTargets: updatedTargets });
+    } catch (err) {
+      console.warn('[setManualTargets] Failed to update manual targets:', err);
+    } finally {
+      set({ strategyLoading: false });
+    }
+  },
+
+  runWeeklyCheckIn: async () => {
+    set({ checkInLoading: true });
+    try {
+      const res = await apiPerformWeeklyCheckIn('usr_dev_1');
+      if (res && res.success && res.updated_profile) {
+        persist('strategy_profile', res.updated_profile);
+        const updatedTargets: MetabolicTargets = {
+          ...get().metabolicTargets,
+          tdee: res.new_expenditure,
+          target_calories: res.new_targets.calories,
+          target_protein_g: res.new_targets.protein_g,
+          target_carbs_g: res.new_targets.carbs_g,
+          target_fats_g: res.new_targets.fats_g,
+        };
+        persist('metabolic_targets', updatedTargets);
+        set({
+          strategyProfile: res.updated_profile,
+          metabolicTargets: updatedTargets,
+          lastCheckInResult: res,
+          checkInModalVisible: true,
+        });
+      }
+      return res;
+    } catch (err) {
+      console.warn('[runWeeklyCheckIn] Check-in failed:', err);
+      return null;
+    } finally {
+      set({ checkInLoading: false });
+    }
+  },
+
+  setCheckInModalVisible: (visible: boolean) => {
+    set({ checkInModalVisible: visible });
   },
 }));

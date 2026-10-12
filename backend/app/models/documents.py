@@ -214,6 +214,10 @@ class StrategyProfileDocument(Document):
     diet_style: str = "balanced"                 # balanced | low_carb | keto | high_protein
     protein_preference: str = "moderate"         # low | moderate | high
     use_day_variation: bool = False              # Training Day vs Rest Day cycling
+    target_calories: int = 2400
+    target_protein_g: int = 160
+    target_carbs_g: int = 250
+    target_fats_g: int = 70
     schedule_targets: List[DayMacroTarget] = Field(default_factory=list)
 
     # 4. Expenditure & History

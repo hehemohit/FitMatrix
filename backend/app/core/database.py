@@ -24,6 +24,7 @@ from app.models.documents import (
     NutritionLogDocument,
     PlanArtifactDocument,
     DailyLogDocument,
+    StrategyProfileDocument,
 )
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,7 @@ async def init_db() -> None:
                 NutritionLogDocument,
                 PlanArtifactDocument,
                 DailyLogDocument,
+                StrategyProfileDocument,
             ],
         )
 
