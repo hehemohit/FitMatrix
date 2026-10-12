@@ -14,6 +14,7 @@ Usage in main.py:
 """
 
 import logging
+import certifi
 from contextlib import asynccontextmanager
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from beanie import init_beanie
@@ -65,6 +66,7 @@ async def init_db() -> None:
         _mongo_client = AsyncIOMotorClient(
             settings.MONGODB_URI,
             serverSelectionTimeoutMS=5000,  # Fail fast during startup if Atlas is unreachable
+            tlsCAFile=certifi.where(),
         )
 
         # Bridge PyMongo 4.14+ driver metadata for Beanie compatibility with Motor 3.7+
