@@ -18,7 +18,7 @@ from app.models.documents import UserDocument
 # Cryptographic constants
 JWT_SECRET_KEY = getattr(settings, "JWT_SECRET_KEY", "fitmatrix_metabolic_engine_secret_key_2026_super_secure")
 JWT_ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30  # 30 days session for mobile
+ACCESS_TOKEN_EXPIRE_MINUTES = getattr(settings, "ACCESS_TOKEN_EXPIRE_MINUTES", 60 * 24 * 30)
 
 security_bearer = HTTPBearer(auto_error=False)
 
