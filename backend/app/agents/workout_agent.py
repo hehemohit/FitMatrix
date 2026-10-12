@@ -33,8 +33,8 @@ def workout_agent_node(state: FitMatrixState) -> dict:
         f"Active Athlete State:\n{json.dumps(state_context, indent=2)}\n\n"
         "Prescription Rules:\n"
         "- Tailor the workout to the user's fitness goal if specified in user_profile (e.g. hypertrophy, strength, endurance).\n"
-        "- If fatigue is 'high_fatigue' or readiness < 60: strictly prescribe light technique drills, mobility, or active recovery.\n"
-        "- If fatigue is 'nominal' and readiness >= 60: prescribe high-intensity compound lifts, conditioning, or goal-specific volume.\n"
+        "- If fatigue is 'high_fatigue' or readiness < 60: apply RPE auto-regulation (target RPE 6-7, reduce working volume by 1-2 sets, drop back-off failure sets, prioritize submaximal form) rather than canceling workouts.\n"
+        "- If fatigue is 'nominal' and readiness >= 60: prescribe high-intensity compound lifts, progressive overload (RPE 8-9), or goal-specific volume.\n"
         "- Limit response to 2 crisp, actionable sentences."
     )
 
@@ -86,7 +86,7 @@ def workout_agent_structured(state: dict) -> WorkoutPlanSchema:
         f"Current Biometrics: {json.dumps(biometrics)}\n\n"
         "Rules:\n"
         "- Base fitness_goal on user_profile.fitness_goal (default: 'hypertrophy').\n"
-        "- If readiness < 60 or fatigue is 'high_fatigue', prescribe deload week.\n"
+        "- If readiness < 60 or fatigue is 'high_fatigue', prescribe auto-regulated submaximal sessions (RPE 6-7, reduced volume sets) or a strategic deload.\n"
         "- Include 4-6 days of training appropriate to the goal.\n"
         "- Provide realistic sets, reps, RPE, and rest intervals per exercise.\n"
         "- Respect dietary preference when noting pre/post-workout nutrition in notes."

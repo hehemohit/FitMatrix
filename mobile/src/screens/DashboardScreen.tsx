@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   SafeAreaView,
   ScrollView,
@@ -13,6 +13,7 @@ import { useTrainerStore } from '../store/useTrainerStore';
 import { MetricTile } from '../components/cards/MetricTile';
 import { ReadinessCard } from '../components/ReadinessCard';
 import { MacroCard } from '../components/MacroCard';
+import { MealEntryModal } from '../components/MealEntryModal';
 
 export const DashboardScreen: React.FC = () => {
   const {
@@ -22,12 +23,18 @@ export const DashboardScreen: React.FC = () => {
     coachState,
     userProfile,
     dailyLog,
+    todayMeals,
     syncHealth,
     refreshHealth,
+    logMeal,
+    syncTodayNutrition,
   } = useTrainerStore();
+
+  const [mealModalVisible, setMealModalVisible] = useState(false);
 
   useEffect(() => {
     syncHealth();
+    syncTodayNutrition();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -59,7 +66,10 @@ export const DashboardScreen: React.FC = () => {
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
-            onRefresh={refreshHealth}
+            onRefresh={() => {
+              refreshHealth();
+              syncTodayNutrition();
+            }}
             tintColor="#1a73e8"
           />
         }
@@ -128,7 +138,42 @@ export const DashboardScreen: React.FC = () => {
           proteinLogged={dailyLog.protein_logged_g ?? 0}
           proteinTarget={userProfile.target_protein_g ?? 160}
           caloriesTarget={userProfile.target_calories ?? 2400}
+          onLogMealPress={() => setMealModalVisible(true)}
         />
+
+        {/* Today's Meals Timeline */}
+        <View style={styles.mealsCard}>
+          <View style={styles.mealsHeader}>
+            <Text style={styles.mealsTitle}>Today's Meals</Text>
+            <Text style={styles.mealsCount}>{todayMeals.length} logged</Text>
+          </View>
+          {todayMeals.length === 0 ? (
+            <TouchableOpacity
+              style={styles.emptyMeals}
+              onPress={() => setMealModalVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.emptyMealsEmoji}>🍽️</Text>
+              <Text style={styles.emptyMealsText}>No meals logged yet today</Text>
+              <Text style={styles.emptyMealsSub}>Tap "+ Log Meal" above or tap here to start</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.mealsList}>
+              {todayMeals.map((meal, idx) => (
+                <View key={meal.meal_id || `meal_${idx}`} style={styles.mealRow}>
+                  <View style={styles.mealLeft}>
+                    <Text style={styles.mealCategory}>{meal.category} · {meal.time || 'Today'}</Text>
+                    <Text style={styles.mealName}>{meal.name}</Text>
+                  </View>
+                  <View style={styles.mealRight}>
+                    <Text style={styles.mealCalories}>{meal.calories} kcal</Text>
+                    <Text style={styles.mealProtein}>{meal.protein_g}g P</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
 
         {/* Data source badge */}
         <View style={styles.sourceBadge}>
@@ -155,6 +200,13 @@ export const DashboardScreen: React.FC = () => {
           <Text style={styles.syncBtnText}>🔄 Sync Health Data</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Quick Meal Entry Modal */}
+      <MealEntryModal
+        visible={mealModalVisible}
+        onClose={() => setMealModalVisible(false)}
+        onLog={logMeal}
+      />
     </SafeAreaView>
   );
 };
@@ -191,6 +243,97 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   metricGrid: { flexDirection: 'row', marginBottom: 4 },
+  mealsCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    padding: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    marginBottom: 12,
+  },
+  mealsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  mealsTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111',
+  },
+  mealsCount: {
+    fontSize: 12,
+    color: '#888',
+    fontWeight: '500',
+  },
+  emptyMeals: {
+    paddingVertical: 20,
+    alignItems: 'center',
+    backgroundColor: '#f9fbfd',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e8f0fe',
+    borderStyle: 'dashed',
+  },
+  emptyMealsEmoji: {
+    fontSize: 24,
+    marginBottom: 6,
+  },
+  emptyMealsText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#444',
+  },
+  emptyMealsSub: {
+    fontSize: 11,
+    color: '#888',
+    marginTop: 2,
+  },
+  mealsList: {
+    gap: 10,
+  },
+  mealRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  mealLeft: {
+    flex: 1,
+  },
+  mealCategory: {
+    fontSize: 11,
+    color: '#1a73e8',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  mealName: {
+    fontSize: 14,
+    color: '#222',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  mealRight: {
+    alignItems: 'flex-end',
+  },
+  mealCalories: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111',
+  },
+  mealProtein: {
+    fontSize: 11,
+    color: '#4CAF50',
+    fontWeight: '600',
+    marginTop: 1,
+  },
   sourceBadge: {
     flexDirection: 'row',
     alignItems: 'center',

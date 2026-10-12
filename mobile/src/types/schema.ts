@@ -39,6 +39,7 @@ export interface BiometricPayload {
   prescribed_workout?: string | null;
   user_profile?: UserProfile;
   daily_log?: DailyLog;
+  context_domain?: string;
 }
 
 export interface CoachResponse {

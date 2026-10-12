@@ -33,11 +33,14 @@ apiClient.interceptors.response.use(
     if (isNetworkError && originalRequest && !originalRequest._retry) {
       originalRequest._retry = true;
       const currentBase = originalRequest.baseURL || BASE_URL;
-      const fallbackBase = currentBase.includes('10.0.2.2')
-        ? 'http://localhost:8000'
-        : 'http://10.0.2.2:8000';
+      let fallbackBase = 'http://localhost:8000';
+      if (currentBase.includes('localhost:8000')) {
+        fallbackBase = 'http://10.0.2.2:8000';
+      } else if (currentBase.includes('10.0.2.2:8000')) {
+        fallbackBase = 'http://localhost:8000';
+      }
 
-      console.warn(`[apiClient] Network error on ${currentBase}. Retrying with ${fallbackBase}...`);
+      console.warn(`[apiClient] Network error on ${currentBase}. Cascading fallback to ${fallbackBase}...`);
       originalRequest.baseURL = fallbackBase;
       apiClient.defaults.baseURL = fallbackBase;
       return apiClient(originalRequest);
@@ -165,4 +168,73 @@ export const generateDietPlan = async (payload: PlanRequest): Promise<DietPlan> 
 export const generateSleepGoal = async (payload: PlanRequest): Promise<SleepGoal> => {
   const response = await apiClient.post('/api/v1/plan/sleep', payload);
   return normalizeSleepGoal(response.data);
+};
+// ─── Nutrition Logging ────────────────────────────────────────────────────────
+
+export interface MealItem {
+  meal_id?: string;
+  name: string;
+  category: string;
+  time: string;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fats_g: number;
+  logged_at?: string;
+}
+
+export interface NutritionDay {
+  date: string;
+  total_calories: number;
+  total_protein_g: number;
+  total_carbs_g: number;
+  total_fats_g: number;
+  meals: MealItem[];
+}
+
+export const logMealToServer = async (userId: string, meal: MealItem): Promise<NutritionDay> => {
+  const today = new Date().toISOString().split('T')[0];
+  const { data } = await apiClient.post<NutritionDay>('/api/v1/nutrition/log', {
+    user_id: userId, date: today, name: meal.name, category: meal.category,
+    time: meal.time, calories: meal.calories, protein_g: meal.protein_g,
+    carbs_g: meal.carbs_g, fats_g: meal.fats_g,
+  });
+  return data;
+};
+
+export const getTodayNutrition = async (userId: string): Promise<NutritionDay> => {
+  const today = new Date().toISOString().split('T')[0];
+  const { data } = await apiClient.get<NutritionDay>('/api/v1/nutrition/today', {
+    params: { user_id: userId, date: today },
+  });
+  return data;
+};
+
+export const estimateMealMacros = async (
+  foodDescription: string,
+): Promise<{ name: string; calories: number; protein_g: number; carbs_g: number; fats_g: number }> => {
+  const { data } = await apiClient.post('/api/v1/nutrition/estimate', { food_description: foodDescription });
+  return data;
+};
+
+// ─── Profile Sync to MongoDB Atlas ───────────────────────────────────────────
+
+export interface ProfileSyncResponse {
+  status: string;
+  targets: { bmr: number; tdee: number; target_calories: number; target_protein_g: number; target_carbs_g: number; target_fats_g: number };
+}
+
+export const syncProfileToServer = async (
+  profile: Record<string, unknown>,
+  userId = 'usr_dev_1',
+): Promise<ProfileSyncResponse> => {
+  const { data } = await apiClient.put<ProfileSyncResponse>('/api/v1/user/profile', { user_id: userId, ...profile });
+  return data;
+};
+
+// ─── Weigh-In ─────────────────────────────────────────────────────────────────
+
+export const logWeighIn = async (userId: string, weightKg: number): Promise<void> => {
+  const today = new Date().toISOString().split('T')[0];
+  await apiClient.post('/api/v1/metrics/weigh-in', { user_id: userId, date: today, scale_weight_kg: weightKg });
 };

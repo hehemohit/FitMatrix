@@ -28,11 +28,12 @@ def supervisor_node(state: FitMatrixState) -> dict:
 
     # Extract durable entities (diet preferences, goals, logs) & determine topic
     latest_user_text = _get_latest_user_text(messages)
-    profile, log, current_topic = extract_and_update_state(
+    profile, log, extracted_topic = extract_and_update_state(
         latest_user_text,
         state.get("user_profile", {}),
         state.get("daily_log", {}),
     )
+    current_topic = extracted_topic or state.get("current_topic")
 
     # Check if an agent already responded in the current execution turn
     last_is_ai = bool(messages and isinstance(messages[-1], AIMessage))

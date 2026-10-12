@@ -16,7 +16,8 @@ import {
 } from '../types/schema';
 import { WorkoutPlan, DietPlan, SleepGoal } from '../types/plans';
 import { HealthSnapshot } from '../services/healthService';
-import { sendBiometricsAndMessage, computeReadiness } from '../api/coachApi';
+import { sendBiometricsAndMessage, computeReadiness, logMealToServer, getTodayNutrition, syncProfileToServer } from '../api/coachApi';
+import type { MealItem } from '../api/coachApi';
 import {
   generateWorkoutPlan,
   generateDietPlan,
@@ -51,6 +52,15 @@ function hydrate<T>(key: string, fallback: T): T {
 
 // ─── Store Interface ──────────────────────────────────────────────────────────
 
+interface MetabolicTargets {
+  bmr: number;
+  tdee: number;
+  target_calories: number;
+  target_protein_g: number;
+  target_carbs_g: number;
+  target_fats_g: number;
+}
+
 interface TrainerState {
   // ── Transient ──
   messages: ChatMessage[];
@@ -60,20 +70,28 @@ interface TrainerState {
   healthLoading: boolean;
   readinessLoading: boolean;
   planLoading: boolean;
+  mealLoading: boolean;
+
+  // ── Nutrition ──
+  todayMeals: MealItem[];
 
   // ── Persistent (MMKV) ──
   userProfile: UserProfile;
   dailyLog: DailyLog;
+  metabolicTargets: MetabolicTargets;
   workoutPlan: WorkoutPlan | null;
   dietPlan: DietPlan | null;
   sleepGoal: SleepGoal | null;
 
   // ── Actions ──
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (text: string, contextDomain?: string) => Promise<void>;
   generatePlan: (type: 'workout' | 'diet' | 'sleep') => Promise<boolean>;
   syncHealth: () => Promise<void>;
   refreshHealth: () => Promise<void>;
   setUserProfile: (profile: UserProfile) => void;
+  saveProfile: (profile: UserProfile) => Promise<void>;
+  logMeal: (meal: MealItem) => Promise<void>;
+  syncTodayNutrition: () => Promise<void>;
   resetChat: () => void;
 }
 
@@ -85,16 +103,24 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
     { sender: 'coach', text: 'FitMatrix initialized. How can I guide your training today?' },
   ],
   loading: false,
-  // readiness_score starts null — real value computed on first syncHealth()
+  mealLoading: false,
   coachState: { readiness_score: null as unknown as number, fatigue_flag: null, prescribed_workout: null },
   healthSnapshot: null,
   healthLoading: false,
   readinessLoading: false,
   planLoading: false,
+  todayMeals: [],
 
   // Hydrate persistent state from MMKV on store creation
   userProfile: hydrate<UserProfile>('user_profile', {}),
   dailyLog: hydrate<DailyLog>('daily_log', {}),
+  metabolicTargets: hydrate<MetabolicTargets>('metabolic_targets', {
+    bmr: 0, tdee: 0,
+    target_calories: 2400,
+    target_protein_g: 160,
+    target_carbs_g: 250,
+    target_fats_g: 70,
+  }),
   workoutPlan: hydrate<WorkoutPlan | null>('workout_plan', null),
   dietPlan: hydrate<DietPlan | null>('diet_plan', null),
   sleepGoal: hydrate<SleepGoal | null>('sleep_goal', null),
@@ -188,7 +214,7 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
   },
 
   // ── sendMessage: conversational chat ──
-  sendMessage: async (text: string) => {
+  sendMessage: async (text: string, contextDomain?: string) => {
     const { messages, coachState, userProfile, dailyLog, healthSnapshot } = get();
 
     const userMsg: ChatMessage = { sender: 'user', text };
@@ -213,6 +239,7 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
         prescribed_workout: coachState.prescribed_workout,
         user_profile: userProfile,
         daily_log: dailyLog,
+        context_domain: contextDomain,
       });
 
       const updatedProfile = res.user_profile ?? userProfile;
@@ -290,10 +317,90 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
     }
   },
 
-  // ── setUserProfile: called from ProfileScreen ──
+  // ── setUserProfile: called from ProfileScreen (local only) ──
   setUserProfile: (profile: UserProfile) => {
     persist('user_profile', profile);
     set({ userProfile: profile });
+  },
+
+  // ── saveProfile: syncs to MongoDB Atlas and receives computed macro targets ──
+  saveProfile: async (profile: UserProfile) => {
+    persist('user_profile', profile);
+    set({ userProfile: profile });
+    try {
+      const res = await syncProfileToServer(profile as Record<string, unknown>);
+      if (res?.targets) {
+        const targets = {
+          bmr: res.targets.bmr,
+          tdee: res.targets.tdee,
+          target_calories: res.targets.target_calories,
+          target_protein_g: res.targets.target_protein_g,
+          target_carbs_g: res.targets.target_carbs_g,
+          target_fats_g: res.targets.target_fats_g,
+        };
+        persist('metabolic_targets', targets);
+        // Also update user_profile with server-computed targets for MacroCard
+        const updatedProfile = {
+          ...profile,
+          target_calories: res.targets.target_calories,
+          target_protein_g: res.targets.target_protein_g,
+        };
+        persist('user_profile', updatedProfile);
+        set({ metabolicTargets: targets, userProfile: updatedProfile });
+      }
+    } catch (err) {
+      console.warn('[saveProfile] Server sync failed (offline?). Local state saved:', err);
+    }
+  },
+
+  // ── logMeal: optimistic UI update + MMKV + MongoDB Atlas background sync ──
+  logMeal: async (meal: MealItem) => {
+    set({ mealLoading: true });
+
+    // 1. Optimistic local update (instant UI feedback)
+    const currentLog = get().dailyLog;
+    const newCalories = (currentLog.calories_logged ?? 0) + meal.calories;
+    const newProtein = (currentLog.protein_logged_g ?? 0) + meal.protein_g;
+    const updatedLog: DailyLog = {
+      ...currentLog,
+      calories_logged: newCalories,
+      protein_logged_g: newProtein,
+    };
+    const updatedMeals = [...get().todayMeals, meal];
+
+    persist('daily_log', updatedLog);
+    set({ dailyLog: updatedLog, todayMeals: updatedMeals, mealLoading: false });
+
+    // 2. Background sync to MongoDB Atlas
+    try {
+      const serverDay = await logMealToServer('usr_dev_1', meal);
+      // Reconcile local state with server totals
+      const reconciledLog: DailyLog = {
+        ...get().dailyLog,
+        calories_logged: serverDay.total_calories,
+        protein_logged_g: serverDay.total_protein_g,
+      };
+      persist('daily_log', reconciledLog);
+      set({ dailyLog: reconciledLog, todayMeals: serverDay.meals as MealItem[] });
+    } catch (err) {
+      console.warn('[logMeal] Server sync failed (offline?). Local state preserved:', err);
+    }
+  },
+
+  // ── syncTodayNutrition: fetches today's meals from MongoDB on app open ──
+  syncTodayNutrition: async () => {
+    try {
+      const serverDay = await getTodayNutrition('usr_dev_1');
+      const updatedLog: DailyLog = {
+        ...get().dailyLog,
+        calories_logged: serverDay.total_calories,
+        protein_logged_g: serverDay.total_protein_g,
+      };
+      persist('daily_log', updatedLog);
+      set({ dailyLog: updatedLog, todayMeals: serverDay.meals as MealItem[] });
+    } catch (err) {
+      console.warn('[syncTodayNutrition] Could not fetch from server. Using local log:', err);
+    }
   },
 
   // ── resetChat: clears messages but keeps profile/plans ──

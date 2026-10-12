@@ -60,7 +60,7 @@ export const AgentChatScreen: React.FC = () => {
       <ChatView
         messages={messages}
         loading={loading}
-        onSend={sendMessage}
+        onSend={(text) => sendMessage(text, activeTab)}
         placeholder={`Ask your ${activeTab} agent...`}
       />
 

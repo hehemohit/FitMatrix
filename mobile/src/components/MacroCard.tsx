@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 
 interface MacroBarProps {
   label: string;
@@ -34,6 +34,8 @@ interface MacroCardProps {
   carbsTarget?: number;
   fatsTarget?: number;
   caloriesTarget?: number;
+  /** Action */
+  onLogMealPress?: () => void;
 }
 
 export const MacroCard: React.FC<MacroCardProps> = ({
@@ -45,13 +47,21 @@ export const MacroCard: React.FC<MacroCardProps> = ({
   carbsTarget = 250,
   fatsTarget = 70,
   caloriesTarget = 2400,
+  onLogMealPress,
 }) => {
   const calPct = caloriesTarget > 0 ? Math.min((caloriesLogged / caloriesTarget) * 100, 100) : 0;
 
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
-        <Text style={styles.title}>Nutrition Today</Text>
+        <View style={styles.titleGroup}>
+          <Text style={styles.title}>Nutrition Today</Text>
+          {onLogMealPress && (
+            <TouchableOpacity style={styles.logBtn} onPress={onLogMealPress} activeOpacity={0.75}>
+              <Text style={styles.logBtnText}>+ Log Meal</Text>
+            </TouchableOpacity>
+          )}
+        </View>
         <Text style={styles.calValue}>
           {caloriesLogged}
           <Text style={styles.calTarget}> / {caloriesTarget} kcal</Text>
@@ -100,13 +110,29 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'baseline',
+    alignItems: 'center',
     marginBottom: 8,
+  },
+  titleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   title: {
     fontSize: 14,
     fontWeight: '700',
     color: '#111',
+  },
+  logBtn: {
+    backgroundColor: '#e8f0fe',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  logBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1a73e8',
   },
   calValue: {
     fontSize: 16,
