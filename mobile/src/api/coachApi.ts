@@ -29,6 +29,19 @@ export const apiClient = axios.create({
   timeout: 90000,
 });
 
+let currentAuthToken: string | null = null;
+export const setAuthToken = (token: string | null) => {
+  currentAuthToken = token;
+};
+
+// Automatically attach Bearer token to all outgoing requests
+apiClient.interceptors.request.use(config => {
+  if (currentAuthToken) {
+    config.headers.Authorization = `Bearer ${currentAuthToken}`;
+  }
+  return config;
+});
+
 // Auto-fallback between localhost (adb reverse) and 10.0.2.2 (Android emulator loopback)
 apiClient.interceptors.response.use(
   response => response,

@@ -62,10 +62,14 @@ class MealEntry(BaseModel):
 class UserDocument(Document):
     """
     Collection: users
-    One document per user. Holds the full profile and pre-computed metabolic targets.
-    user_id matches the mobile client's 'usr_dev_1' identifier.
+    One document per user. Holds identity, auth credentials,
+    biometrics, and computed metabolic targets.
     """
     user_id: Annotated[str, Indexed(unique=True)]
+    email: Optional[str] = None
+    hashed_password: Optional[str] = None
+    full_name: Optional[str] = "Athlete"
+    is_onboarded: bool = False
     profile: UserProfileData = Field(default_factory=UserProfileData)
     targets: MetabolicTargets = Field(default_factory=MetabolicTargets)
     created_at: datetime = Field(default_factory=datetime.utcnow)
