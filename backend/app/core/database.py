@@ -58,6 +58,10 @@ async def init_db() -> None:
         serverSelectionTimeoutMS=5000,  # Fail fast during startup if Atlas is unreachable
     )
 
+    # Bridge PyMongo 4.14+ driver metadata for Beanie compatibility with Motor 3.7+
+    if hasattr(_mongo_client.delegate, "append_metadata"):
+        _mongo_client.append_metadata = _mongo_client.delegate.append_metadata
+
     db = _mongo_client[settings.DATABASE_NAME]
 
     await init_beanie(
