@@ -224,10 +224,10 @@ Evaluated in Python via `evaluate_readiness` in `backend/app/tools/fitness_tools
 
 $$\text{Readiness} = \max\left(0, \left\lfloor \min\left(\frac{\text{Sleep Minutes}}{420}, 1.0\right) \times 80 \right\rfloor - \text{Pen}_{\text{Steps}} - \text{Pen}_{\text{RHR}}\right)$$
 
-$$\text{Pen}_{\text{Steps}} = 10 \quad \text{if Steps} > 15,000 \text{ else } 0$$
+$$\text{Pen}_{\text{Steps}} = 10 \quad \text{if Steps} > 15000 \text{ else } 0$$
 $$\text{Pen}_{\text{RHR}} = 10 \quad \text{if Resting Heart Rate} > (\text{Baseline}_{\text{RHR}} + 7\text{ BPM})$$
 
-$$\text{Fatigue Flag} = \begin{cases} \text{"high\_fatigue"}, & \text{if Readiness} < 60 \\ \text{"nominal"}, & \text{if Readiness} \ge 60 \end{cases}$$
+$$\text{Fatigue Flag} = \begin{cases} \text{"high-fatigue"}, & \text{if Readiness} < 60 \\ \text{"nominal"}, & \text{if Readiness} \ge 60 \end{cases}$$
 
 ### 5.2 Basal Metabolic Rate (Mifflin-St Jeor)
 Implemented in `backend/app/core/metabolism.py`:
@@ -250,10 +250,10 @@ $$\text{TDEE}_{\text{recalibrated}} = \text{TDEE}_{\text{old}} + 0.5 \cdot (\tex
 ### 5.4 Dynamic ETA Trajectory (Wishnofsky Tissue Deficit)
 Implemented in `calculate_eta_and_delta()`:
 
-$$\Delta W_{\text{target\_week}} = \text{Current Weight} \times \frac{\text{Weekly Rate \%}}{100}$$
-$$\text{Daily Caloric Delta} = \frac{\Delta W_{\text{target\_week}} \times 7700}{7}$$
+$$\Delta W_{\text{weekly}} = \text{Current Weight} \times \frac{\text{Weekly Rate \%}}{100}$$
+$$\text{Daily Caloric Delta} = \frac{\Delta W_{\text{weekly}} \times 7700}{7}$$
 $$\text{Target Calories} = \max(1200, \text{True TDEE} + \text{Daily Caloric Delta})$$
-$$\text{Weeks to Goal} = \frac{|\text{Target Weight} - \text{Current Weight}|}{|\Delta W_{\text{target\_week}}|}$$
+$$\text{Weeks to Goal} = \frac{|\text{Target Weight} - \text{Current Weight}|}{|\Delta W_{\text{weekly}}|}$$
 $$\text{Target Date} = \text{Today} + (7 \times \text{Weeks to Goal})\text{ days}$$
 
 ### 5.5 Day-to-Day Isocaloric Carbohydrate Cycling
