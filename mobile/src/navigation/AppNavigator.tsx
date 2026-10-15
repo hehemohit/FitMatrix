@@ -15,6 +15,7 @@ import { WorkoutDashboardScreen } from '../screens/workout/WorkoutDashboardScree
 import { useTrainerStore } from '../store/useTrainerStore';
 import { useWorkoutSessionStore, WorkoutSummaryData } from '../store/useWorkoutSessionStore';
 import { useExerciseLibraryStore } from '../store/useExerciseLibraryStore';
+import { useDashboardTabStore } from '../store/useDashboardTabStore';
 import { colors } from '../theme/colors';
 
 export const AppNavigator: React.FC = () => {
@@ -29,6 +30,7 @@ export const AppNavigator: React.FC = () => {
     minimizeWorkout,
   } = useWorkoutSessionStore();
   const { exercises: libraryExercises } = useExerciseLibraryStore();
+  const { activeDashboard, setActiveDashboard } = useDashboardTabStore();
 
   const [activeTab, setActiveTab] = useState(0);
   const [quickActionVisible, setQuickActionVisible] = useState(false);
@@ -44,7 +46,8 @@ export const AppNavigator: React.FC = () => {
       setWeighInModalVisible(true);
     } else if (action === 'workout') {
       if (!isActive) {
-        setWorkoutDashboardVisible(true);
+        setActiveDashboard('workout');
+        setActiveTab(0);
       } else {
         minimizeWorkout(false);
       }
@@ -59,12 +62,21 @@ export const AppNavigator: React.FC = () => {
 
   const screens = React.useMemo(
     () => [
-      <DashboardScreen key="dashboard-screen" />,
+      activeDashboard === 'workout' ? (
+        <WorkoutDashboardScreen
+          key="workout-dashboard-screen"
+          onStartWorkout={(name, initialExercises) => {
+            startWorkout(name, initialExercises);
+          }}
+        />
+      ) : (
+        <DashboardScreen key="dashboard-screen" />
+      ),
       <FoodLogScreen key="foodlog-screen" />,
       <StrategyScreen key="strategy-screen" />,
       <ProfileScreen key="profile-screen" />,
     ],
-    []
+    [activeDashboard, startWorkout]
   );
 
   const currentExercise = exercises[activeExerciseIndex];

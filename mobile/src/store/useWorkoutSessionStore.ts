@@ -1,11 +1,20 @@
 import { create } from 'zustand';
+import { Vibration } from 'react-native';
 import { ExerciseRecord } from '../utils/muscleTargetMapper';
+import { useWorkoutHistoryStore } from './useWorkoutHistoryStore';
+
+export type SetType = 'normal' | 'warmup' | 'drop' | 'failure' | 'rest_pause';
 
 export interface LoggedSet {
   setNumber: number;
+  type?: SetType;
   previousPerformance?: string;
+  previousWeight?: number;
+  previousReps?: number;
   targetReps?: string;
   targetRir?: number;
+  rir?: number;
+  rpe?: number;
   weight: number;
   reps: number;
   isCompleted: boolean;
@@ -87,6 +96,8 @@ interface WorkoutSessionState {
   addSet: (exerciseIndex: number) => void;
   removeSet: (exerciseIndex: number, setIndex: number) => void;
   toggleSetComplete: (exerciseIndex: number, setIndex: number) => void;
+  setSetType: (exerciseIndex: number, setIndex: number, type: SetType) => void;
+  setSetRir: (exerciseIndex: number, setIndex: number, rir: number) => void;
   focusField: (exerciseIndex: number, setIndex: number, field: 'weight' | 'reps') => void;
 
   // Keypad
@@ -116,19 +127,35 @@ export const useWorkoutSessionStore = create<WorkoutSessionState>((set, get) => 
   activeInputString: '',
 
   startWorkout: (name = 'Workout Session', initialExercises = []) => {
+    const historyStore = useWorkoutHistoryStore.getState();
+
     const formattedExercises: ActiveWorkoutExercise[] = initialExercises.map((e, idx) => {
       const setCount = e.targetSets && e.targetSets > 0 ? e.targetSets : 3;
       const targetRepsStr = e.targetReps ? `${e.targetReps} reps` : '8-10 reps';
       const defaultReps = typeof e.targetReps === 'number' ? e.targetReps : 8;
 
-      const sets = Array.from({ length: setCount }, (_, sIdx) => ({
-        setNumber: sIdx + 1,
-        weight: 135,
-        reps: defaultReps,
-        targetReps: targetRepsStr,
-        targetRir: 2,
-        isCompleted: false,
-      }));
+      // Query past performance for ghost sets
+      const pastSets = historyStore.getHistoryForExercise(e.id || e.name);
+      const latestPastSet = pastSets && pastSets[0] ? pastSets[0] : null;
+      const initialWeight = latestPastSet ? latestPastSet.weight : 135;
+
+      const sets = Array.from({ length: setCount }, (_, sIdx) => {
+        const pastSetForIdx = pastSets && pastSets[sIdx] ? pastSets[sIdx] : latestPastSet;
+        const prevPerf = pastSetForIdx ? `${pastSetForIdx.weight} lb × ${pastSetForIdx.reps}` : undefined;
+
+        return {
+          setNumber: sIdx + 1,
+          type: 'normal' as SetType,
+          previousPerformance: prevPerf,
+          previousWeight: pastSetForIdx?.weight,
+          previousReps: pastSetForIdx?.reps,
+          weight: pastSetForIdx ? pastSetForIdx.weight : initialWeight,
+          reps: defaultReps,
+          targetReps: targetRepsStr,
+          targetRir: 2,
+          isCompleted: false,
+        };
+      });
 
       return {
         instanceId: `inst_${Date.now()}_${idx}`,
@@ -215,6 +242,13 @@ export const useWorkoutSessionStore = create<WorkoutSessionState>((set, get) => 
       restTimerActive: false,
     });
 
+    // Permanently save to MMKV history store
+    try {
+      useWorkoutHistoryStore.getState().saveWorkout(summary);
+    } catch (e) {
+      console.warn('Failed to save workout to history:', e);
+    }
+
     return summary;
   },
 
@@ -232,6 +266,9 @@ export const useWorkoutSessionStore = create<WorkoutSessionState>((set, get) => 
       } else {
         nextRest = 0;
         nextRestActive = false;
+        try {
+          Vibration.vibrate([0, 250, 100, 250]);
+        } catch {}
       }
     }
 
@@ -400,6 +437,34 @@ export const useWorkoutSessionStore = create<WorkoutSessionState>((set, get) => 
     }
 
     set({ exercises: updated });
+  },
+
+  setSetType: (exerciseIndex: number, setIndex: number, type: SetType) => {
+    set(state => {
+      const updated = [...state.exercises];
+      const ex = updated[exerciseIndex];
+      if (!ex || !ex.sets[setIndex]) return state;
+
+      ex.sets[setIndex] = {
+        ...ex.sets[setIndex],
+        type,
+      };
+      return { exercises: updated };
+    });
+  },
+
+  setSetRir: (exerciseIndex: number, setIndex: number, rir: number) => {
+    set(state => {
+      const updated = [...state.exercises];
+      const ex = updated[exerciseIndex];
+      if (!ex || !ex.sets[setIndex]) return state;
+
+      ex.sets[setIndex] = {
+        ...ex.sets[setIndex],
+        rir,
+      };
+      return { exercises: updated };
+    });
   },
 
   focusField: (exerciseIndex: number, setIndex: number, field: 'weight' | 'reps') => {

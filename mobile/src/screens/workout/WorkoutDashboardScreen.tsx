@@ -7,28 +7,32 @@ import {
   StyleSheet,
   StatusBar,
   ActivityIndicator,
-  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSafeTopInset } from '../../hooks/useSafeTopInset';
 import { colors } from '../../theme/colors';
 import { useTrainerStore } from '../../store/useTrainerStore';
 import { useExerciseLibraryStore } from '../../store/useExerciseLibraryStore';
-import { ExerciseRecord, MuscleKey, mapExerciseToMuscles } from '../../utils/muscleTargetMapper';
+import { useWorkoutSessionStore } from '../../store/useWorkoutSessionStore';
+import { useWorkoutHistoryStore, CompletedWorkoutRecord } from '../../store/useWorkoutHistoryStore';
+import { useDashboardTabStore } from '../../store/useDashboardTabStore';
+import { ExerciseRecord, MuscleKey } from '../../utils/muscleTargetMapper';
 import { MuscleSkeletonMap } from '../../components/workout/MuscleSkeletonMap';
 import { WorkoutPreviewModal, RoutinePreviewItem } from '../../components/workout/WorkoutPreviewModal';
 import { AddExerciseModal } from '../../components/workout/AddExerciseModal';
 import { ExerciseInfoModal } from '../../components/workout/ExerciseInfoModal';
+import { TodaySessionHero } from '../../components/workout/opengym/TodaySessionHero';
+import { InteractiveWeekStrip } from '../../components/workout/opengym/InteractiveWeekStrip';
+import { WorkoutStreakCard } from '../../components/workout/opengym/WorkoutStreakCard';
+import { RecentWorkoutsList } from '../../components/workout/opengym/RecentWorkoutsList';
 
 interface WorkoutDashboardScreenProps {
-  onClose: () => void;
+  onClose?: () => void;
   onStartWorkout: (
     name: string,
     exercises: (ExerciseRecord & { targetSets?: number; targetReps?: string | number })[]
   ) => void;
 }
-
-const WEEK_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 export const WorkoutDashboardScreen: React.FC<WorkoutDashboardScreenProps> = ({
   onClose,
@@ -39,6 +43,13 @@ export const WorkoutDashboardScreen: React.FC<WorkoutDashboardScreenProps> = ({
 
   const { workoutPlan, planLoading, generatePlan } = useTrainerStore();
   const { exercises: libraryExercises } = useExerciseLibraryStore();
+  const {
+    isActive,
+    workoutName: activeWorkoutName,
+    elapsedSeconds: activeElapsedSeconds,
+    minimizeWorkout,
+  } = useWorkoutSessionStore();
+  const { workouts, getStreakWeeks, getWorkoutsForWeek } = useWorkoutHistoryStore();
 
   const [previewModalVisible, setPreviewModalVisible] = useState(false);
   const [selectedRoutine, setSelectedRoutine] = useState<{
@@ -49,12 +60,7 @@ export const WorkoutDashboardScreen: React.FC<WorkoutDashboardScreenProps> = ({
 
   const [browseLibraryVisible, setBrowseLibraryVisible] = useState(false);
   const [infoModalExercise, setInfoModalExercise] = useState<ExerciseRecord | null>(null);
-
-  // Today index (0 = Monday ... 6 = Sunday)
-  const currentDayIndex = useMemo(() => {
-    const day = new Date().getDay(); // 0 is Sun, 1 is Mon...
-    return day === 0 ? 6 : day - 1;
-  }, []);
+  const [inspectedWorkout, setInspectedWorkout] = useState<CompletedWorkoutRecord | null>(null);
 
   const searchInLibrary = (query: string): ExerciseRecord | undefined => {
     const q = query.trim().toLowerCase();
@@ -62,12 +68,11 @@ export const WorkoutDashboardScreen: React.FC<WorkoutDashboardScreenProps> = ({
     return libraryExercises.find(e => e.name.toLowerCase().includes(q));
   };
 
-  // Helper to map an AI-Coach plan day or raw exercise into library ExerciseRecords
+  // Helper to map raw exercises into RoutinePreviewItem
   const mapExercisesToLibrary = (
     rawExercises: { name: string; sets?: number; reps?: number | string }[]
   ): RoutinePreviewItem[] => {
     return rawExercises.map((raw, idx) => {
-      // Fuzzy search in the 1,324 dataset
       const found = searchInLibrary(raw.name);
       if (found) {
         return {
@@ -96,21 +101,24 @@ export const WorkoutDashboardScreen: React.FC<WorkoutDashboardScreenProps> = ({
     });
   };
 
-  // Pre-built Split Templates from the 1,324 dataset
+  // Pre-built Split Templates from dataset
   const splitTemplates = useMemo(() => {
     const getMovement = (query: string): ExerciseRecord => {
       const found = searchInLibrary(query);
-      return found || libraryExercises[0] || {
-        id: query,
-        name: query,
-        category: 'strength',
-        target: 'chest',
-        secondary: [],
-        equipment: 'barbell',
-        image: '',
-        gifUrl: '',
-        instructions: [],
-      };
+      return (
+        found ||
+        libraryExercises[0] || {
+          id: query,
+          name: query,
+          category: 'strength',
+          target: 'chest',
+          secondary: [],
+          equipment: 'barbell',
+          image: '',
+          gifUrl: '',
+          instructions: [],
+        }
+      );
     };
 
     return [
@@ -172,6 +180,50 @@ export const WorkoutDashboardScreen: React.FC<WorkoutDashboardScreenProps> = ({
     ];
   }, [libraryExercises]);
 
+  // Check if a workout was completed today
+  const completedTodayWorkout = useMemo(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const match = workouts.find(w => {
+      const dStr = new Date(w.completedAt).toISOString().split('T')[0];
+      return dStr === todayStr;
+    });
+    return match ? { routineName: match.routineName, totalSets: match.totalSets, totalVolumeLb: match.totalVolumeLb } : null;
+  }, [workouts]);
+
+  // Today's planned routine (from AI coach or default)
+  const todayPlannedRoutine = useMemo(() => {
+    if (workoutPlan?.days && workoutPlan.days.length > 0) {
+      const day = workoutPlan.days[0];
+      return {
+        name: `${day.day} — ${day.targetMuscleGroups ? day.targetMuscleGroups.join(', ') : 'AI Split'}`,
+        exercisesCount: day.exercises?.length || 4,
+        targetMuscles: day.targetMuscleGroups,
+        rawExercises: day.exercises,
+      };
+    }
+    const defaultSplit = splitTemplates[0];
+    return {
+      name: defaultSplit.title,
+      exercisesCount: defaultSplit.exercises.length,
+      targetMuscles: ['Chest', 'Shoulders', 'Triceps'],
+      template: defaultSplit,
+    };
+  }, [workoutPlan, splitTemplates]);
+
+  const handleStartTodayPlanned = () => {
+    if (todayPlannedRoutine.template) {
+      handleOpenTemplate(todayPlannedRoutine.template);
+    } else if (todayPlannedRoutine.rawExercises) {
+      const mapped = mapExercisesToLibrary(todayPlannedRoutine.rawExercises);
+      setSelectedRoutine({
+        title: todayPlannedRoutine.name,
+        subtitle: '⚡ Recommended by AI Coach',
+        exercises: mapped,
+      });
+      setPreviewModalVisible(true);
+    }
+  };
+
   const handleOpenTemplate = (template: typeof splitTemplates[0]) => {
     setSelectedRoutine({
       title: template.title,
@@ -204,42 +256,39 @@ export const WorkoutDashboardScreen: React.FC<WorkoutDashboardScreenProps> = ({
 
   const handleStartEmpty = () => {
     onStartWorkout('Empty Workout', []);
-    onClose();
+    onClose?.();
   };
 
-  // Active muscle groups for the anatomy balance widget
   const weeklyMuscles = useMemo(() => {
     const list: MuscleKey[] = ['chest', 'lats', 'quads', 'front_delts', 'biceps', 'triceps'];
     return list;
   }, []);
 
+  const streakWeeks = getStreakWeeks();
+  const workoutsThisWeek = getWorkoutsForWeek().length;
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
 
-      {/* Header Bar */}
+      {/* Header Bar with Dual Dashboard Switcher Button */}
       <View style={[styles.header, { paddingTop: topInset }]}>
-        <TouchableOpacity onPress={onClose} style={styles.backBtn} activeOpacity={0.7}>
-          <Text style={styles.backBtnText}>✕</Text>
-        </TouchableOpacity>
-        <View style={styles.headerTitleWrap}>
-          <Text style={styles.headerTitle}>Workout Dashboard</Text>
-          <View style={styles.coachSyncRow}>
-            <View style={styles.syncDot} />
-            <Text style={styles.coachSyncText}>AI Coach Ready</Text>
+        <View style={styles.headerLeft}>
+          <Text style={styles.headerTitle}>Workout</Text>
+          <View style={styles.engineBadge}>
+            <View style={styles.engineDot} />
+            <Text style={styles.engineText}>openGym Engine</Text>
           </View>
         </View>
+
+        {/* Top-Right Toggle to Nutrition Dashboard */}
         <TouchableOpacity
-          onPress={() => generatePlan('workout')}
-          style={styles.refreshAiBtn}
-          activeOpacity={0.7}
-          disabled={planLoading}
+          style={styles.switchDashboardBtn}
+          onPress={() => useDashboardTabStore.getState().setActiveDashboard('nutrition')}
+          activeOpacity={0.8}
         >
-          {planLoading ? (
-            <ActivityIndicator size="small" color="#60a5fa" />
-          ) : (
-            <Text style={styles.refreshAiIcon}>🔄</Text>
-          )}
+          <Text style={styles.switchDashboardIcon}>🍎</Text>
+          <Text style={styles.switchDashboardText}>Nutrition</Text>
         </TouchableOpacity>
       </View>
 
@@ -247,22 +296,42 @@ export const WorkoutDashboardScreen: React.FC<WorkoutDashboardScreenProps> = ({
         contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 16) + 32 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Weekly Day Strip */}
-        <View style={styles.weekStrip}>
-          {WEEK_DAYS.map((dayName, idx) => {
-            const isToday = idx === currentDayIndex;
-            return (
-              <View key={dayName} style={[styles.dayPill, isToday && styles.dayPillActive]}>
-                <Text style={[styles.dayPillName, isToday && styles.dayPillTextActive]}>{dayName}</Text>
-                <View style={[styles.dayDot, isToday && styles.dayDotActive]} />
-              </View>
-            );
-          })}
-        </View>
+        {/* 1. Interactive Mon–Sun Week Strip */}
+        <InteractiveWeekStrip completedWorkouts={workouts} />
 
-        {/* 1. HERO SECTION: AI-Coach Recommendation */}
+        {/* 2. Today's Session Hero (4 Dynamic States) */}
+        <TodaySessionHero
+          isActive={isActive}
+          activeWorkoutName={activeWorkoutName}
+          activeElapsedSeconds={activeElapsedSeconds}
+          completedTodayWorkout={completedTodayWorkout}
+          plannedRoutine={todayPlannedRoutine}
+          nextSessionText={splitTemplates[1]?.title}
+          onResume={() => minimizeWorkout(false)}
+          onStartPlanned={handleStartTodayPlanned}
+          onStartFreestyle={handleStartEmpty}
+        />
+
+        {/* 3. openGym Streak & Consistency Card */}
+        <WorkoutStreakCard
+          streakWeeks={streakWeeks}
+          workoutsDoneThisWeek={workoutsThisWeek}
+          workoutsPlannedThisWeek={4}
+          totalWorkoutsLogged={workouts.length}
+        />
+
+        {/* 4. Recent Workouts History List */}
+        <RecentWorkoutsList
+          workouts={workouts}
+          onSelectWorkout={w => {
+            // Inspect past workout
+            setInspectedWorkout(w);
+          }}
+        />
+
+        {/* 5. AI-Coach Training Plan Hero Card */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>🤖 AI Coach Training Plan</Text>
+          <Text style={styles.sectionTitle}>🤖 AI Coach Training Split</Text>
           {workoutPlan && (
             <TouchableOpacity onPress={() => generatePlan('workout')}>
               <Text style={styles.sectionActionText}>Regenerate</Text>
@@ -275,20 +344,15 @@ export const WorkoutDashboardScreen: React.FC<WorkoutDashboardScreenProps> = ({
             <View style={styles.aiPlanTopRow}>
               <View>
                 <Text style={styles.aiPlanGoal}>
-                  {workoutPlan.fitnessGoal ? workoutPlan.fitnessGoal.toUpperCase() : 'TARGET PROGRAM'}
+                  {workoutPlan.fitnessGoal ? workoutPlan.fitnessGoal.toUpperCase() : 'PERSONALIZED PLAN'}
                 </Text>
-                <Text style={styles.aiPlanTitle}>Personalized Split</Text>
+                <Text style={styles.aiPlanTitle}>Weekly Routine</Text>
               </View>
               <View style={styles.aiPlanBadge}>
                 <Text style={styles.aiPlanBadgeText}>{workoutPlan.days.length} Days/Wk</Text>
               </View>
             </View>
 
-            <Text style={styles.aiPlanSub}>
-              Tailored to your body composition, recovery markers, and strength goals.
-            </Text>
-
-            {/* AI Days Horizontal Scroll */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.aiDaysScroll}>
               {workoutPlan.days.map((day, dIdx) => (
                 <TouchableOpacity
@@ -316,7 +380,7 @@ export const WorkoutDashboardScreen: React.FC<WorkoutDashboardScreenProps> = ({
             <Text style={styles.aiEmptyIcon}>🧠</Text>
             <Text style={styles.aiEmptyTitle}>Generate Your AI Workout Plan</Text>
             <Text style={styles.aiEmptySub}>
-              FitMatrix AI will craft a custom routine based on your fitness level, target muscles, and recovery readiness.
+              FitMatrix AI will craft a custom routine based on your fitness level and recovery readiness.
             </Text>
             <TouchableOpacity
               style={styles.generateAiBtn}
@@ -336,14 +400,9 @@ export const WorkoutDashboardScreen: React.FC<WorkoutDashboardScreenProps> = ({
           </View>
         )}
 
-        {/* 2. QUICK ACTIONS ROW */}
+        {/* 6. Quick Actions Row */}
         <View style={styles.quickActionsRow}>
-          {/* Start Empty Session */}
-          <TouchableOpacity
-            style={styles.quickActionCard}
-            onPress={handleStartEmpty}
-            activeOpacity={0.8}
-          >
+          <TouchableOpacity style={styles.quickActionCard} onPress={handleStartEmpty} activeOpacity={0.8}>
             <View style={[styles.qaIconWrap, { backgroundColor: '#1e3a5f' }]}>
               <Text style={styles.qaIcon}>➕</Text>
             </View>
@@ -351,12 +410,7 @@ export const WorkoutDashboardScreen: React.FC<WorkoutDashboardScreenProps> = ({
             <Text style={styles.qaSub}>Build as you go</Text>
           </TouchableOpacity>
 
-          {/* Browse Library */}
-          <TouchableOpacity
-            style={styles.quickActionCard}
-            onPress={() => setBrowseLibraryVisible(true)}
-            activeOpacity={0.8}
-          >
+          <TouchableOpacity style={styles.quickActionCard} onPress={() => setBrowseLibraryVisible(true)} activeOpacity={0.8}>
             <View style={[styles.qaIconWrap, { backgroundColor: '#2d2547' }]}>
               <Text style={styles.qaIcon}>📚</Text>
             </View>
@@ -365,7 +419,7 @@ export const WorkoutDashboardScreen: React.FC<WorkoutDashboardScreenProps> = ({
           </TouchableOpacity>
         </View>
 
-        {/* 3. SPLIT TEMPLATES SECTION */}
+        {/* 7. Curated Training Splits */}
         <Text style={styles.sectionTitle}>Curated Training Splits</Text>
         <View style={styles.templatesList}>
           {splitTemplates.map(template => (
@@ -396,11 +450,11 @@ export const WorkoutDashboardScreen: React.FC<WorkoutDashboardScreenProps> = ({
           ))}
         </View>
 
-        {/* 4. MUSCLE VOLUME & BALANCE SECTION */}
+        {/* 8. Muscle Balance & Volume Widget */}
         <Text style={styles.sectionTitle}>Weekly Muscle Balance</Text>
         <View style={styles.balanceCard}>
           <View style={styles.balanceInfo}>
-            <Text style={styles.balanceTitle}>Anatomical Coverage</Text>
+            <Text style={styles.balanceTitle}>Anatomical Recovery</Text>
             <Text style={styles.balanceSub}>
               Highlighted muscles indicate active training volume this week. Balanced recovery ensures optimal growth.
             </Text>
@@ -409,12 +463,7 @@ export const WorkoutDashboardScreen: React.FC<WorkoutDashboardScreenProps> = ({
             </View>
           </View>
           <View style={styles.balanceSkeletonWrap}>
-            <MuscleSkeletonMap
-              highlightedMuscles={weeklyMuscles}
-              width={90}
-              height={160}
-              showLabels={false}
-            />
+            <MuscleSkeletonMap highlightedMuscles={weeklyMuscles} width={90} height={160} showLabels={false} />
           </View>
         </View>
       </ScrollView>
@@ -432,7 +481,7 @@ export const WorkoutDashboardScreen: React.FC<WorkoutDashboardScreenProps> = ({
           exercises={selectedRoutine.exercises}
           onStartWorkout={(name, exList) => {
             onStartWorkout(name, exList);
-            onClose();
+            onClose?.();
           }}
         />
       )}
@@ -473,99 +522,53 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#1f242e',
   },
-  backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#222733',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  backBtnText: {
-    color: '#94a3b8',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  headerTitleWrap: {
+  headerLeft: {
     flex: 1,
-    alignItems: 'center',
-    paddingHorizontal: 10,
   },
   headerTitle: {
     color: '#ffffff',
-    fontSize: 17,
+    fontSize: 28,
     fontWeight: '900',
+    letterSpacing: -0.6,
   },
-  coachSyncRow: {
+  engineBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 2,
   },
-  syncDot: {
+  engineDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#34d399',
+    backgroundColor: '#10b981',
     marginRight: 6,
   },
-  coachSyncText: {
-    color: '#34d399',
+  engineText: {
+    color: '#10b981',
     fontSize: 11,
     fontWeight: '700',
   },
-  refreshAiBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#1e2430',
+  switchDashboardBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: '#1e2430',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#2d374d',
   },
-  refreshAiIcon: {
-    fontSize: 16,
+  switchDashboardIcon: {
+    fontSize: 14,
+    marginRight: 6,
+  },
+  switchDashboardText: {
+    color: '#e2e8f0',
+    fontSize: 13,
+    fontWeight: '800',
   },
   scrollContent: {
     padding: 16,
-  },
-  weekStrip: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    backgroundColor: '#161920',
-    borderRadius: 14,
-    padding: 8,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#20242e',
-  },
-  dayPill: {
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-  },
-  dayPillActive: {
-    backgroundColor: '#1e293b',
-    borderWidth: 1,
-    borderColor: '#3b82f6',
-  },
-  dayPillName: {
-    color: '#64748b',
-    fontSize: 11,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  dayPillTextActive: {
-    color: '#60a5fa',
-    fontWeight: '900',
-  },
-  dayDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'transparent',
-  },
-  dayDotActive: {
-    backgroundColor: '#3b82f6',
   },
   sectionHeaderRow: {
     flexDirection: 'row',
@@ -622,12 +625,6 @@ const styles = StyleSheet.create({
     color: '#93c5fd',
     fontSize: 11,
     fontWeight: '800',
-  },
-  aiPlanSub: {
-    color: '#717f96',
-    fontSize: 12,
-    lineHeight: 17,
-    marginBottom: 14,
   },
   aiDaysScroll: {
     gap: 10,

@@ -15,3 +15,7 @@ __pycache__/
 
 # Containers & Volumes
 pgdata/
+
+# Research & External Clones
+research/
+

@@ -61,6 +61,7 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
     swapExerciseInWorkout,
     addSet,
     toggleSetComplete,
+    setSetType,
     focusField,
     handleKeypadPress,
     handleKeypadBackspace,
@@ -207,6 +208,7 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
                 setIsKeypadOpen(true);
               }}
               onToggleComplete={sIdx => toggleSetComplete(activeExerciseIndex, sIdx)}
+              onSetTypeChange={(sIdx, type) => setSetType(activeExerciseIndex, sIdx, type)}
               onAddSet={() => addSet(activeExerciseIndex)}
             />
           </View>

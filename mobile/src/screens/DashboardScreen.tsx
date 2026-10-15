@@ -8,7 +8,9 @@ import {
   StyleSheet,
   StatusBar,
   Platform,
+  TouchableOpacity,
 } from 'react-native';
+import { useDashboardTabStore } from '../store/useDashboardTabStore';
 import { useSafeTopInset } from '../hooks/useSafeTopInset';
 import { useTrainerStore } from '../store/useTrainerStore';
 import { colors } from '../theme/colors';
@@ -111,9 +113,19 @@ export const DashboardScreen: React.FC = () => {
         }
       >
         {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.dateLabel}>{formattedDate}</Text>
-          <Text style={styles.pageTitle}>Dashboard</Text>
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={styles.dateLabel}>{formattedDate}</Text>
+            <Text style={styles.pageTitle}>Dashboard</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.switchDashboardBtn}
+            onPress={() => useDashboardTabStore.getState().setActiveDashboard('workout')}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.switchDashboardIcon}>🏋️</Text>
+            <Text style={styles.switchDashboardText}>Workout</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Daily Nutrition Section */}
@@ -210,9 +222,33 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.textSecondary,
   },
-  header: {
+  headerRow: {
     marginTop: 8,
     marginBottom: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+  },
+  switchDashboardBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1b2333',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#2b3f63',
+    marginBottom: 4,
+  },
+  switchDashboardIcon: {
+    fontSize: 14,
+    marginRight: 6,
+  },
+  switchDashboardText: {
+    color: '#60a5fa',
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.2,
   },
   dateLabel: {
     fontSize: 11,

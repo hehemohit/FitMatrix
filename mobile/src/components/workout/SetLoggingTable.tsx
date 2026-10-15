@@ -5,7 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from 'react-native';
-import { LoggedSet } from '../../store/useWorkoutSessionStore';
+import { LoggedSet, SetType } from '../../store/useWorkoutSessionStore';
 
 interface SetLoggingTableProps {
   sets: LoggedSet[];
@@ -16,6 +16,7 @@ interface SetLoggingTableProps {
   onToggleComplete: (setIdx: number) => void;
   onAddSet: () => void;
   onDeleteSet?: (setIdx: number) => void;
+  onSetTypeChange?: (setIdx: number, type: SetType) => void;
 }
 
 export const SetLoggingTable: React.FC<SetLoggingTableProps> = ({
@@ -26,13 +27,21 @@ export const SetLoggingTable: React.FC<SetLoggingTableProps> = ({
   onFocusField,
   onToggleComplete,
   onAddSet,
+  onSetTypeChange,
 }) => {
+  const handleCycleType = (idx: number, currentType: SetType = 'normal') => {
+    if (!onSetTypeChange) return;
+    const types: SetType[] = ['normal', 'warmup', 'drop', 'failure'];
+    const nextIdx = (types.indexOf(currentType) + 1) % types.length;
+    onSetTypeChange(idx, types[nextIdx]);
+  };
+
   return (
     <View style={styles.container}>
       {/* Table Header */}
       <View style={styles.headerRow}>
-        <Text style={[styles.headerCell, { width: 36, textAlign: 'center' }]}>Set</Text>
-        <Text style={[styles.headerCell, { flex: 1.2 }]}>Auto ➔</Text>
+        <Text style={[styles.headerCell, { width: 38, textAlign: 'center' }]}>Set</Text>
+        <Text style={[styles.headerCell, { flex: 1.2 }]}>Previous / Target</Text>
         <Text style={[styles.headerCell, { width: 70, textAlign: 'center' }]}>{unit}</Text>
         <Text style={[styles.headerCell, { width: 70, textAlign: 'center' }]}>Reps</Text>
         <Text style={[styles.headerCell, { width: 44, textAlign: 'center' }]}>✓</Text>
@@ -43,27 +52,56 @@ export const SetLoggingTable: React.FC<SetLoggingTableProps> = ({
         const isCurrentSet = idx === activeSetIndex;
         const isWeightFocused = isCurrentSet && activeFieldType === 'weight';
         const isRepsFocused = isCurrentSet && activeFieldType === 'reps';
+        const setType = s.type || 'normal';
+
+        const setLabel =
+          setType === 'warmup' ? 'W' :
+          setType === 'drop' ? 'D' :
+          setType === 'failure' ? 'F' :
+          setType === 'rest_pause' ? 'RP' :
+          String(s.setNumber);
 
         return (
           <View
             key={`set_${s.setNumber}_${idx}`}
             style={[styles.row, s.isCompleted && styles.rowCompleted]}
           >
-            {/* Set Number Circle */}
-            <View style={[styles.setCircle, s.isCompleted && styles.setCircleCompleted]}>
-              <Text style={[styles.setText, s.isCompleted && styles.setTextCompleted]}>
-                {s.setNumber}
+            {/* Set Number / Type Circle (Tap to cycle: Work -> Warmup -> Drop -> Failure) */}
+            <TouchableOpacity
+              style={[
+                styles.setCircle,
+                setType === 'warmup' && styles.setCircleWarmup,
+                setType === 'drop' && styles.setCircleDrop,
+                setType === 'failure' && styles.setCircleFailure,
+                s.isCompleted && styles.setCircleCompleted,
+              ]}
+              onPress={() => handleCycleType(idx, setType)}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[
+                  styles.setText,
+                  setType === 'warmup' && styles.setTextWarmup,
+                  setType === 'drop' && styles.setTextDrop,
+                  setType === 'failure' && styles.setTextFailure,
+                  s.isCompleted && styles.setTextCompleted,
+                ]}
+              >
+                {setLabel}
               </Text>
-            </View>
+            </TouchableOpacity>
 
-            {/* Target / Previous Performance */}
+            {/* Target / Previous Performance (Ghost info) */}
             <View style={styles.targetCol}>
-              <Text style={styles.targetText}>
+              {s.previousPerformance ? (
+                <Text style={styles.previousGhostText} numberOfLines={1}>
+                  Last: {s.previousPerformance}
+                </Text>
+              ) : null}
+              <Text style={styles.targetText} numberOfLines={1}>
                 {s.targetReps || '8-10 reps'}
+                {s.targetRir !== undefined ? ` • ${s.targetRir} RIR` : ''}
               </Text>
-              {s.targetRir !== undefined && (
-                <Text style={styles.rirText}>{s.targetRir} RIR</Text>
-              )}
             </View>
 
             {/* Weight Input Box */}
@@ -165,13 +203,43 @@ const styles = StyleSheet.create({
   setTextCompleted: {
     color: '#4cd964',
   },
+  setCircleWarmup: {
+    backgroundColor: '#3b2812',
+    borderColor: '#d97706',
+  },
+  setTextWarmup: {
+    color: '#fbbf24',
+    fontWeight: '900',
+  },
+  setCircleDrop: {
+    backgroundColor: '#321945',
+    borderColor: '#a855f7',
+  },
+  setTextDrop: {
+    color: '#c084fc',
+    fontWeight: '900',
+  },
+  setCircleFailure: {
+    backgroundColor: '#40151c',
+    borderColor: '#ef4444',
+  },
+  setTextFailure: {
+    color: '#f87171',
+    fontWeight: '900',
+  },
   targetCol: {
     flex: 1.2,
   },
+  previousGhostText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#60a5fa',
+    marginBottom: 1,
+  },
   targetText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
-    color: '#959ba8',
+    color: '#818a99',
   },
   rirText: {
     fontSize: 10,
