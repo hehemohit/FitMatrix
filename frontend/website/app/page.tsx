@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useLenis } from "lenis/react";
 
 type PhoneView = "dashboard" | "foodlog" | "vision";
 type GaugeMode = "consumed" | "remaining";
@@ -54,6 +55,8 @@ const DISHES: Record<DishKey, DishData> = {
 };
 
 export default function LandingPage() {
+  const lenis = useLenis();
+
   // Interactive Phone Simulator State
   const [phoneView, setPhoneView] = useState<PhoneView>("dashboard");
   const [gaugeMode, setGaugeMode] = useState<GaugeMode>("consumed");
@@ -63,7 +66,7 @@ export default function LandingPage() {
   const [simDish, setSimDish] = useState<DishData>(DISHES.fried_rice);
   const [copiedTerminal, setCopiedTerminal] = useState(false);
 
-  // Heatmap generation state (deterministic 52x7 matrix to avoid hydration flicker)
+  // Heatmap generation state (deterministic 52x7 matrix)
   const [heatmapCells, setHeatmapCells] = useState<number[]>([]);
 
   useEffect(() => {
@@ -80,6 +83,16 @@ export default function LandingPage() {
     }
     setHeatmapCells(cells);
   }, []);
+
+  const scrollToSection = (e: React.MouseEvent<HTMLAnchorElement>, targetId: string) => {
+    e.preventDefault();
+    if (lenis) {
+      lenis.scrollTo(targetId, { offset: -70, duration: 1.2 });
+    } else {
+      const el = document.querySelector(targetId);
+      if (el) el.scrollIntoView({ behavior: "smooth" });
+    }
+  };
 
   const triggerPhoneScan = () => {
     if (isScanning) return;
@@ -114,14 +127,15 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-[#0c0e12] text-[#e2e2e8] selection:bg-[#00e699] selection:text-[#002112]">
       {/* ================= TOP APP BAR ================= */}
-      <header className="sticky top-0 z-50 bg-[#111317]/90 backdrop-blur-md border-b border-[#3b4a40]/30">
+      <header className="sticky top-0 z-50 bg-[#111317]/90 backdrop-blur-md border-b border-[#3b4a40]/30 transition-all">
         <div className="w-full max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           {/* Brand Logo Anchor */}
           <a
-            className="font-['Space_Grotesk'] text-lg md:text-xl tracking-tight font-bold text-[#e2e2e8] flex items-center gap-2"
+            className="font-['Space_Grotesk'] text-lg md:text-xl tracking-tight font-bold text-[#e2e2e8] flex items-center gap-2 group cursor-pointer"
             href="#hero"
+            onClick={(e) => scrollToSection(e, "#hero")}
           >
-            <span className="w-8 h-8 rounded-lg bg-[#282a2e] border border-[#3b4a40]/40 flex items-center justify-center text-[#76ffbb]">
+            <span className="w-8 h-8 rounded-lg bg-[#282a2e] border border-[#3b4a40]/40 flex items-center justify-center text-[#76ffbb] transition-all group-hover:border-[#76ffbb]/60 group-hover:shadow-[0_0_15px_-3px_rgba(118,255,187,0.3)]">
               <span
                 className="material-symbols-outlined text-[#76ffbb] text-xl"
                 style={{ fontVariationSettings: "'FILL' 1" }}
@@ -129,41 +143,46 @@ export default function LandingPage() {
                 hub
               </span>
             </span>
-            <span>FitMatrix AI</span>
+            <span className="tracking-tight">FitMatrix AI</span>
             <span className="font-['JetBrains_Mono'] text-[10px] text-[#76ffbb] bg-[#00e699]/15 px-2 py-0.5 rounded border border-[#76ffbb]/30 ml-1 hidden sm:inline-block">
               CAPSTONE // 2025
             </span>
           </a>
 
-          {/* Desktop Links */}
+          {/* Desktop Links with Lenis smooth scroll */}
           <nav className="hidden md:flex items-center gap-7">
             <a
-              className="text-[#76ffbb] font-['JetBrains_Mono'] text-xs transition-colors hover:text-[#76ffbb] hover:bg-[#282a2e]/40 px-2 py-1 rounded"
+              className="text-[#76ffbb] font-['JetBrains_Mono'] text-xs transition-all hover:text-[#76ffbb] hover:bg-[#282a2e]/60 px-2.5 py-1 rounded"
               href="#interactive-phone"
+              onClick={(e) => scrollToSection(e, "#interactive-phone")}
             >
               Live Client
             </a>
             <a
-              className="text-[#bacbbe] hover:text-[#e2e2e8] transition-colors font-['JetBrains_Mono'] text-xs hover:bg-[#282a2e]/40 px-2 py-1 rounded"
+              className="text-[#bacbbe] hover:text-[#e2e2e8] transition-all font-['JetBrains_Mono'] text-xs hover:bg-[#282a2e]/60 px-2.5 py-1 rounded"
               href="#production-interfaces"
+              onClick={(e) => scrollToSection(e, "#production-interfaces")}
             >
               App Gallery
             </a>
             <a
-              className="text-[#bacbbe] hover:text-[#e2e2e8] transition-colors font-['JetBrains_Mono'] text-xs hover:bg-[#282a2e]/40 px-2 py-1 rounded"
+              className="text-[#bacbbe] hover:text-[#e2e2e8] transition-all font-['JetBrains_Mono'] text-xs hover:bg-[#282a2e]/60 px-2.5 py-1 rounded"
               href="#architecture"
+              onClick={(e) => scrollToSection(e, "#architecture")}
             >
               Architecture
             </a>
             <a
-              className="text-[#bacbbe] hover:text-[#e2e2e8] transition-colors font-['JetBrains_Mono'] text-xs hover:bg-[#282a2e]/40 px-2 py-1 rounded"
+              className="text-[#bacbbe] hover:text-[#e2e2e8] transition-all font-['JetBrains_Mono'] text-xs hover:bg-[#282a2e]/60 px-2.5 py-1 rounded"
               href="#vision-engine"
+              onClick={(e) => scrollToSection(e, "#vision-engine")}
             >
               Vision Engine
             </a>
             <a
-              className="text-[#bacbbe] hover:text-[#e2e2e8] transition-colors font-['JetBrains_Mono'] text-xs hover:bg-[#282a2e]/40 px-2 py-1 rounded"
+              className="text-[#bacbbe] hover:text-[#e2e2e8] transition-all font-['JetBrains_Mono'] text-xs hover:bg-[#282a2e]/60 px-2.5 py-1 rounded"
               href="#formulations"
+              onClick={(e) => scrollToSection(e, "#formulations")}
             >
               Formulations
             </a>
@@ -172,15 +191,17 @@ export default function LandingPage() {
           {/* Trailing Action Cluster */}
           <div className="flex items-center gap-3">
             <a
-              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#3b4a40]/50 text-[#e2e2e8] font-['JetBrains_Mono'] text-xs hover:bg-[#1e2024] hover:border-[#849589] transition-colors"
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#3b4a40]/50 text-[#e2e2e8] font-['JetBrains_Mono'] text-xs hover:bg-[#1e2024] hover:border-[#849589] transition-all cursor-pointer"
               href="#reproducibility"
+              onClick={(e) => scrollToSection(e, "#reproducibility")}
             >
               <span className="material-symbols-outlined text-base">terminal</span>
               <span>Docs</span>
             </a>
             <a
-              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg bg-[#00e699] text-[#002112] font-['Space_Grotesk'] text-xs font-bold hover:opacity-90 active:scale-95 transition-all shadow-sm"
+              className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg bg-[#00e699] text-[#002112] font-['Space_Grotesk'] text-xs font-bold hover:brightness-105 active:scale-95 transition-all shadow-md shadow-[#00e699]/15 cursor-pointer"
               href="#reproducibility"
+              onClick={(e) => scrollToSection(e, "#reproducibility")}
             >
               <span
                 className="material-symbols-outlined text-base"
@@ -201,12 +222,12 @@ export default function LandingPage() {
           className="relative pt-10 pb-20 md:pt-16 md:pb-28 px-6 amoled-grid border-b border-[#3b4a40]/20 overflow-hidden"
           id="hero"
         >
-          {/* Radial background flare */}
+          {/* Radial ambient background flare */}
           <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[850px] h-[450px] bg-[#76ffbb]/5 rounded-full blur-3xl pointer-events-none" />
 
           <div className="max-w-7xl mx-auto relative z-10">
             {/* Academic Pill Badge */}
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#1a1c20] border border-[#3b4a40]/50 mb-6">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#1a1c20] border border-[#3b4a40]/50 mb-6 shadow-sm">
               <span className="w-2 h-2 rounded-full bg-[#00e699] animate-ping" />
               <span className="w-2 h-2 rounded-full bg-[#00e699] -ml-4" />
               <span className="font-['JetBrains_Mono'] text-[11px] text-[#76ffbb] tracking-wider uppercase">
@@ -233,20 +254,20 @@ export default function LandingPage() {
                 </p>
 
                 {/* Research Telemetry Pill Cluster */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-8">
-                  <div className="p-2.5 rounded-lg bg-[#1e2024] border border-[#3b4a40]/30 flex flex-col">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-8">
+                  <div className="p-3 rounded-xl bg-[#1e2024]/80 backdrop-blur-sm border border-[#3b4a40]/40 flex flex-col transition-all hover:border-[#76ffbb]/40">
                     <span className="font-['JetBrains_Mono'] text-[10px] text-[#bacbbe]">BMR LATENCY</span>
-                    <span className="font-mono text-sm font-bold text-[#76ffbb]">&lt;1ms // 0 Tokens</span>
+                    <span className="font-mono text-sm font-bold text-[#76ffbb] tabular-nums">&lt;1ms // 0 Tokens</span>
                   </div>
-                  <div className="p-2.5 rounded-lg bg-[#1e2024] border border-[#3b4a40]/30 flex flex-col">
+                  <div className="p-3 rounded-xl bg-[#1e2024]/80 backdrop-blur-sm border border-[#3b4a40]/40 flex flex-col transition-all hover:border-[#adc6ff]/40">
                     <span className="font-['JetBrains_Mono'] text-[10px] text-[#bacbbe]">ROLLING TDEE</span>
-                    <span className="font-mono text-sm font-bold text-[#adc6ff]">14-Day α=0.15</span>
+                    <span className="font-mono text-sm font-bold text-[#adc6ff] tabular-nums">14-Day α=0.15</span>
                   </div>
-                  <div className="p-2.5 rounded-lg bg-[#1e2024] border border-[#3b4a40]/30 flex flex-col">
+                  <div className="p-3 rounded-xl bg-[#1e2024]/80 backdrop-blur-sm border border-[#3b4a40]/40 flex flex-col transition-all hover:border-[#ffdbca]/40">
                     <span className="font-['JetBrains_Mono'] text-[10px] text-[#bacbbe]">VISION ENGINE</span>
                     <span className="font-mono text-sm font-bold text-[#ffdbca]">Gemini 3.8 Flash</span>
                   </div>
-                  <div className="p-2.5 rounded-lg bg-[#1e2024] border border-[#3b4a40]/30 flex flex-col">
+                  <div className="p-3 rounded-xl bg-[#1e2024]/80 backdrop-blur-sm border border-[#3b4a40]/40 flex flex-col transition-all hover:border-[#e2e2e8]/40">
                     <span className="font-['JetBrains_Mono'] text-[10px] text-[#bacbbe]">SENSOR BUS</span>
                     <span className="font-mono text-sm font-bold text-[#e2e2e8]">Health Connect</span>
                   </div>
@@ -255,15 +276,17 @@ export default function LandingPage() {
                 {/* Action Buttons */}
                 <div className="flex flex-wrap items-center gap-3">
                   <a
-                    className="py-3 px-6 rounded-xl bg-[#00e699] text-[#002112] font-['Space_Grotesk'] text-sm font-bold hover:brightness-105 active:scale-98 transition-all flex items-center gap-2 shadow-lg shadow-[#00e699]/15"
+                    className="py-3 px-6 rounded-xl bg-[#00e699] text-[#002112] font-['Space_Grotesk'] text-sm font-bold hover:brightness-105 active:scale-95 transition-all flex items-center gap-2 shadow-lg shadow-[#00e699]/20 cursor-pointer"
                     href="#architecture"
+                    onClick={(e) => scrollToSection(e, "#architecture")}
                   >
                     <span className="material-symbols-outlined text-base">account_tree</span>
                     <span>Explore Architecture</span>
                   </a>
                   <a
-                    className="py-3 px-6 rounded-xl bg-[#282a2e] border border-[#3b4a40]/60 text-[#e2e2e8] font-['Space_Grotesk'] text-sm font-semibold hover:border-[#76ffbb] transition-all flex items-center gap-2"
+                    className="py-3 px-6 rounded-xl bg-[#282a2e] border border-[#3b4a40]/60 text-[#e2e2e8] font-['Space_Grotesk'] text-sm font-semibold hover:border-[#76ffbb] transition-all flex items-center gap-2 cursor-pointer"
                     href="#vision-engine"
+                    onClick={(e) => scrollToSection(e, "#vision-engine")}
                   >
                     <span className="material-symbols-outlined text-base">center_focus_strong</span>
                     <span>Vision Lab Simulator</span>
@@ -288,7 +311,7 @@ export default function LandingPage() {
 
               {/* Right Column: INTERACTIVE ANDROID CLIENT DEVICE FRAME (5 cols) */}
               <div className="lg:col-span-5 flex flex-col items-center" id="interactive-phone">
-                <div className="w-full max-w-[364px] bg-[#000000] rounded-[44px] p-2.5 border-[3px] border-[#3b4a40]/80 device-shadow relative select-none">
+                <div className="w-full max-w-[340px] sm:max-w-[364px] bg-[#000000] rounded-[44px] p-2.5 border-[3px] border-[#3b4a40]/80 device-shadow relative select-none">
                   {/* Phone Notch */}
                   <div className="absolute top-4 left-1/2 -translate-x-1/2 w-28 h-4 bg-black rounded-full z-40 flex items-center justify-center">
                     <div className="w-3 h-3 rounded-full bg-[#1a1c20] border border-[#3b4a40]/30" />
@@ -354,8 +377,12 @@ export default function LandingPage() {
                       </div>
                     </div>
 
-                    {/* Scrollable Phone Body */}
-                    <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 text-left">
+                    {/* Scrollable Phone Body (with data-lenis-prevent to prevent scroll hijacking) */}
+                    <div
+                      className="flex-1 overflow-y-auto px-4 py-3 space-y-4 text-left overscroll-contain"
+                      id="phone-content-area"
+                      data-lenis-prevent
+                    >
                       {/* VIEW 1: DASHBOARD */}
                       {phoneView === "dashboard" && (
                         <div className="space-y-4 animate-fadeIn">
@@ -387,14 +414,14 @@ export default function LandingPage() {
 
                               {/* Center Digits */}
                               <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                                <span className="font-['Space_Grotesk'] text-3xl font-bold text-[#e2e2e8] tracking-tight">
+                                <span className="font-['Space_Grotesk'] text-3xl font-bold text-[#e2e2e8] tracking-tight tabular-nums">
                                   {gaugeMode === "consumed" ? "900" : "1,834"}
                                 </span>
                                 <span className="text-[11px] font-medium text-[#bacbbe] uppercase tracking-wider">
                                   {gaugeMode === "consumed" ? "Consumed" : "Remaining"}
                                 </span>
                                 <span
-                                  className={`text-[10px] font-mono font-semibold mt-0.5 ${
+                                  className={`text-[10px] font-mono font-semibold mt-0.5 tabular-nums ${
                                     gaugeMode === "consumed" ? "text-[#adc6ff]" : "text-[#76ffbb]"
                                   }`}
                                 >
@@ -406,7 +433,7 @@ export default function LandingPage() {
                             {/* Left / Right markers */}
                             <div className="w-full flex items-center justify-between px-3 -mt-3 text-center">
                               <div>
-                                <span className="font-['Space_Grotesk'] text-base font-bold text-[#e2e2e8]">
+                                <span className="font-['Space_Grotesk'] text-base font-bold text-[#e2e2e8] tabular-nums">
                                   {gaugeMode === "consumed" ? "1,834" : "900"}
                                 </span>
                                 <p className="text-[10px] text-[#bacbbe]">
@@ -414,7 +441,9 @@ export default function LandingPage() {
                                 </p>
                               </div>
                               <div>
-                                <span className="font-['Space_Grotesk'] text-base font-bold text-[#e2e2e8]">2,734</span>
+                                <span className="font-['Space_Grotesk'] text-base font-bold text-[#e2e2e8] tabular-nums">
+                                  2,734
+                                </span>
                                 <p className="text-[10px] text-[#bacbbe]">Target</p>
                               </div>
                             </div>
@@ -424,21 +453,21 @@ export default function LandingPage() {
                               <div className="flex flex-col items-center text-center">
                                 <span className="w-10 h-1 bg-[#de7237] rounded-full mb-1" />
                                 <span className="text-[10px] text-[#bacbbe] font-mono uppercase">Protein</span>
-                                <span className="text-xs font-bold font-mono text-[#e2e2e8]">
+                                <span className="text-xs font-bold font-mono text-[#e2e2e8] tabular-nums">
                                   {gaugeMode === "consumed" ? "19 / 205g" : "186g left"}
                                 </span>
                               </div>
                               <div className="flex flex-col items-center text-center">
                                 <span className="w-10 h-1 bg-[#e5ad35] rounded-full mb-1" />
                                 <span className="text-[10px] text-[#bacbbe] font-mono uppercase">Fat</span>
-                                <span className="text-xs font-bold font-mono text-[#e2e2e8]">
+                                <span className="text-xs font-bold font-mono text-[#e2e2e8] tabular-nums">
                                   {gaugeMode === "consumed" ? "0 / 122g" : "122g left"}
                                 </span>
                               </div>
                               <div className="flex flex-col items-center text-center">
                                 <span className="w-10 h-1 bg-[#3eb474] rounded-full mb-1" />
                                 <span className="text-[10px] text-[#bacbbe] font-mono uppercase">Carbs</span>
-                                <span className="text-xs font-bold font-mono text-[#e2e2e8]">
+                                <span className="text-xs font-bold font-mono text-[#e2e2e8] tabular-nums">
                                   {gaugeMode === "consumed" ? "0 / 204g" : "204g left"}
                                 </span>
                               </div>
@@ -533,7 +562,7 @@ export default function LandingPage() {
                               <h2 className="font-['Space_Grotesk'] text-lg font-bold text-[#e2e2e8]">Food Log</h2>
                             </div>
                             <button
-                              className="px-2.5 py-1 rounded-lg bg-[#282a2e] border border-[#3b4a40]/60 text-[#76ffbb] font-mono text-[10px] font-bold hover:bg-[#1e2024] flex items-center gap-1"
+                              className="px-2.5 py-1 rounded-lg bg-[#282a2e] border border-[#3b4a40]/60 text-[#76ffbb] font-mono text-[10px] font-bold hover:bg-[#1e2024] flex items-center gap-1 cursor-pointer"
                               onClick={() => setPhoneView("vision")}
                             >
                               <span className="material-symbols-outlined text-xs">add</span> Log Meal
@@ -544,15 +573,15 @@ export default function LandingPage() {
                           <div className="grid grid-cols-3 gap-2 p-2 rounded-xl bg-[#1e2024] text-center border border-[#3b4a40]/30 text-[10px]">
                             <div>
                               <span className="text-[#bacbbe] font-mono">CONSUMED</span>
-                              <p className="font-bold text-xs text-[#e2e2e8]">900 kcal</p>
+                              <p className="font-bold text-xs text-[#e2e2e8] tabular-nums">900 kcal</p>
                             </div>
                             <div>
                               <span className="text-[#bacbbe] font-mono">REMAINING</span>
-                              <p className="font-bold text-xs text-[#76ffbb]">1,834 kcal</p>
+                              <p className="font-bold text-xs text-[#76ffbb] tabular-nums">1,834 kcal</p>
                             </div>
                             <div>
                               <span className="text-[#bacbbe] font-mono">TARGET</span>
-                              <p className="font-bold text-xs text-[#adc6ff]">2,734 kcal</p>
+                              <p className="font-bold text-xs text-[#adc6ff] tabular-nums">2,734 kcal</p>
                             </div>
                           </div>
 
@@ -569,7 +598,9 @@ export default function LandingPage() {
                             <div className="p-2.5 rounded-xl bg-[#1e2024] border border-[#3b4a40]/40 space-y-2">
                               <div className="flex items-center justify-between pb-1.5 border-b border-[#3b4a40]/20">
                                 <span className="font-bold text-[11px] text-[#e2e2e8]">Lunch</span>
-                                <span className="text-[11px] font-mono font-bold text-[#76ffbb]">900 kcal</span>
+                                <span className="text-[11px] font-mono font-bold text-[#76ffbb] tabular-nums">
+                                  900 kcal
+                                </span>
                               </div>
                               <div className="p-2 rounded-lg bg-[#0c0e12]/80 flex items-start justify-between">
                                 <div>
@@ -580,7 +611,9 @@ export default function LandingPage() {
                                     02:27 · 10g P · 86g C · 17g F
                                   </div>
                                 </div>
-                                <span className="text-[11px] font-mono font-semibold text-[#e2e2e8]">540 kcal</span>
+                                <span className="text-[11px] font-mono font-semibold text-[#e2e2e8] tabular-nums">
+                                  540 kcal
+                                </span>
                               </div>
                               <div className="p-2 rounded-lg bg-[#0c0e12]/80 flex items-start justify-between">
                                 <div>
@@ -591,7 +624,9 @@ export default function LandingPage() {
                                     04:06 · 9g P · 50g C · 13g F
                                   </div>
                                 </div>
-                                <span className="text-[11px] font-mono font-semibold text-[#e2e2e8]">360 kcal</span>
+                                <span className="text-[11px] font-mono font-semibold text-[#e2e2e8] tabular-nums">
+                                  360 kcal
+                                </span>
                               </div>
                             </div>
 
@@ -625,7 +660,7 @@ export default function LandingPage() {
                               </h2>
                             </div>
                             <button
-                              className="text-[#bacbbe] hover:text-[#e2e2e8]"
+                              className="text-[#bacbbe] hover:text-[#e2e2e8] cursor-pointer"
                               onClick={() => setPhoneView("dashboard")}
                             >
                               <span className="material-symbols-outlined text-base">close</span>
@@ -673,7 +708,7 @@ export default function LandingPage() {
                             </div>
 
                             <button
-                              className="w-full mt-2.5 py-2 rounded-xl bg-gradient-to-r from-[#00e699] to-[#0566d9] text-[#002112] font-['Space_Grotesk'] text-[11px] font-bold hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-1.5 shadow"
+                              className="w-full mt-2.5 py-2 rounded-xl bg-gradient-to-r from-[#00e699] to-[#0566d9] text-[#002112] font-['Space_Grotesk'] text-[11px] font-bold hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-1.5 shadow cursor-pointer"
                               onClick={triggerPhoneScan}
                             >
                               <span className="material-symbols-outlined text-sm">auto_awesome</span>
@@ -685,17 +720,17 @@ export default function LandingPage() {
                           <div className="p-2.5 rounded-xl bg-[#1e2024] border border-[#3b4a40]/30 text-[10px] space-y-1">
                             <div className="flex items-center justify-between text-[#e2e2e8] font-semibold">
                               <span>Vegetable Fried Rice + Veggies</span>
-                              <span className="text-[#76ffbb] font-mono font-bold">540 kcal</span>
+                              <span className="text-[#76ffbb] font-mono font-bold tabular-nums">540 kcal</span>
                             </div>
                             <div className="flex items-center justify-between text-[#bacbbe] font-mono text-[9px]">
                               <span>
-                                Protein: <strong className="text-[#e2e2e8]">10g</strong>
+                                Protein: <strong className="text-[#e2e2e8] tabular-nums">10g</strong>
                               </span>
                               <span>
-                                Carbs: <strong className="text-[#e2e2e8]">86g</strong>
+                                Carbs: <strong className="text-[#e2e2e8] tabular-nums">86g</strong>
                               </span>
                               <span>
-                                Fat: <strong className="text-[#e2e2e8]">17g</strong>
+                                Fat: <strong className="text-[#e2e2e8] tabular-nums">17g</strong>
                               </span>
                             </div>
                             <p className="text-[9px] text-[#bacbbe]/80 border-t border-[#3b4a40]/20 pt-1">
@@ -709,7 +744,7 @@ export default function LandingPage() {
                     {/* Android Bottom Nav */}
                     <div className="mt-auto border-t border-[#3b4a40]/20 bg-[#0d0f12] px-3 py-2 flex items-center justify-between text-[9px] font-medium z-30">
                       <button
-                        className={`flex flex-col items-center gap-0.5 ${
+                        className={`flex flex-col items-center gap-0.5 cursor-pointer ${
                           phoneView === "dashboard" ? "text-[#76ffbb]" : "text-[#bacbbe] hover:text-[#e2e2e8]"
                         }`}
                         onClick={() => setPhoneView("dashboard")}
@@ -720,7 +755,7 @@ export default function LandingPage() {
                       </button>
 
                       <button
-                        className={`flex flex-col items-center gap-0.5 ${
+                        className={`flex flex-col items-center gap-0.5 cursor-pointer ${
                           phoneView === "foodlog" ? "text-[#76ffbb]" : "text-[#bacbbe] hover:text-[#e2e2e8]"
                         }`}
                         onClick={() => setPhoneView("foodlog")}
@@ -732,14 +767,14 @@ export default function LandingPage() {
 
                       {/* Central FAB (+) */}
                       <button
-                        className="w-8 h-8 rounded-full bg-white text-black flex items-center justify-center font-bold text-base shadow-lg -mt-3 border-2 border-[#0d0f12] hover:scale-105 active:scale-95 transition-all"
+                        className="w-8 h-8 rounded-full bg-white text-black flex items-center justify-center font-bold text-base shadow-lg -mt-3 border-2 border-[#0d0f12] hover:scale-105 active:scale-95 transition-all cursor-pointer"
                         onClick={() => setPhoneView("vision")}
                       >
                         +
                       </button>
 
                       <button
-                        className="flex flex-col items-center gap-0.5 text-[#bacbbe] hover:text-[#e2e2e8]"
+                        className="flex flex-col items-center gap-0.5 text-[#bacbbe] hover:text-[#e2e2e8] cursor-pointer"
                         onClick={() => alert("Strategy Universe: 14-day rolling expenditure autoregulation loaded.")}
                       >
                         <span className="material-symbols-outlined text-[17px]">science</span>
@@ -747,7 +782,7 @@ export default function LandingPage() {
                       </button>
 
                       <button
-                        className="flex flex-col items-center gap-0.5 text-[#bacbbe] hover:text-[#e2e2e8]"
+                        className="flex flex-col items-center gap-0.5 text-[#bacbbe] hover:text-[#e2e2e8] cursor-pointer"
                         onClick={() => alert("Health Connect Sensors: 4 hardware streams connected.")}
                       >
                         <span className="material-symbols-outlined text-[17px]">more_horiz</span>
@@ -791,7 +826,7 @@ export default function LandingPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {/* CARD 1: Dashboard */}
-            <div className="flex flex-col rounded-3xl bg-[#1a1c20] border border-[#3b4a40]/40 p-4 transition-all hover:border-[#76ffbb]/50 group">
+            <div className="flex flex-col rounded-3xl bg-[#1a1c20] border border-[#3b4a40]/40 p-4 transition-all duration-300 hover:border-[#76ffbb]/40 hover:shadow-[0_0_25px_-5px_rgba(118,255,187,0.12)] group">
               <div className="flex items-center justify-between mb-3 px-2">
                 <span className="font-['JetBrains_Mono'] text-[11px] text-[#76ffbb]">SCREEN 01 // HUD TELEMETRY</span>
                 <span className="inline-flex items-center gap-1 font-['JetBrains_Mono'] text-[10px] text-[#bacbbe]">
@@ -843,19 +878,25 @@ export default function LandingPage() {
                           />
                         </svg>
                         <div className="absolute inset-0 flex flex-col items-center justify-center">
-                          <span className="font-['Space_Grotesk'] text-lg font-bold text-[#e2e2e8] leading-none">900</span>
+                          <span className="font-['Space_Grotesk'] text-lg font-bold text-[#e2e2e8] leading-none tabular-nums">
+                            900
+                          </span>
                           <span className="text-[8px] text-[#bacbbe] uppercase tracking-wider mt-0.5">Consumed</span>
-                          <span className="text-[8px] font-mono text-[#adc6ff] font-semibold">33%</span>
+                          <span className="text-[8px] font-mono text-[#adc6ff] font-semibold tabular-nums">33%</span>
                         </div>
                       </div>
 
                       <div className="w-full flex items-center justify-between px-2 -mt-1.5 text-center">
                         <div>
-                          <span className="font-['Space_Grotesk'] text-[11px] font-bold text-[#e2e2e8]">1,834</span>
+                          <span className="font-['Space_Grotesk'] text-[11px] font-bold text-[#e2e2e8] tabular-nums">
+                            1,834
+                          </span>
                           <p className="text-[8px] text-[#bacbbe]">Remaining</p>
                         </div>
                         <div>
-                          <span className="font-['Space_Grotesk'] text-[11px] font-bold text-[#e2e2e8]">2,734</span>
+                          <span className="font-['Space_Grotesk'] text-[11px] font-bold text-[#e2e2e8] tabular-nums">
+                            2,734
+                          </span>
                           <p className="text-[8px] text-[#bacbbe]">Target</p>
                         </div>
                       </div>
@@ -864,17 +905,17 @@ export default function LandingPage() {
                         <div className="flex flex-col items-center">
                           <span className="w-7 h-1 bg-[#ffb690] rounded-full mb-0.5" />
                           <span className="text-[8px] text-[#bacbbe] font-mono uppercase">Protein</span>
-                          <span className="text-[9px] font-bold font-mono text-[#e2e2e8]">19 / 205g</span>
+                          <span className="text-[9px] font-bold font-mono text-[#e2e2e8] tabular-nums">19 / 205g</span>
                         </div>
                         <div className="flex flex-col items-center">
                           <span className="w-7 h-1 bg-[#ffdbca] rounded-full mb-0.5" />
                           <span className="text-[8px] text-[#bacbbe] font-mono uppercase">Fat</span>
-                          <span className="text-[9px] font-bold font-mono text-[#e2e2e8]">0 / 122g</span>
+                          <span className="text-[9px] font-bold font-mono text-[#e2e2e8] tabular-nums">0 / 122g</span>
                         </div>
                         <div className="flex flex-col items-center">
                           <span className="w-7 h-1 bg-[#76ffbb] rounded-full mb-0.5" />
                           <span className="text-[8px] text-[#bacbbe] font-mono uppercase">Carbs</span>
-                          <span className="text-[9px] font-bold font-mono text-[#e2e2e8]">0 / 204g</span>
+                          <span className="text-[9px] font-bold font-mono text-[#e2e2e8] tabular-nums">0 / 204g</span>
                         </div>
                       </div>
                     </div>
@@ -924,7 +965,7 @@ export default function LandingPage() {
             </div>
 
             {/* CARD 2: Food Log */}
-            <div className="flex flex-col rounded-3xl bg-[#1a1c20] border border-[#3b4a40]/40 p-4 transition-all hover:border-[#adc6ff]/50 group">
+            <div className="flex flex-col rounded-3xl bg-[#1a1c20] border border-[#3b4a40]/40 p-4 transition-all duration-300 hover:border-[#adc6ff]/40 hover:shadow-[0_0_25px_-5px_rgba(173,198,255,0.12)] group">
               <div className="flex items-center justify-between mb-3 px-2">
                 <span className="font-['JetBrains_Mono'] text-[11px] text-[#adc6ff]">
                   SCREEN 02 // LOGISTICS TIMELINE
@@ -954,15 +995,15 @@ export default function LandingPage() {
 
                     <div className="grid grid-cols-3 gap-1.5 p-1.5 rounded-xl bg-[#14161a] text-center border border-[#3b4a40]/30 text-[9px]">
                       <div>
-                        <span className="text-[#e2e2e8] font-bold text-[11px] block leading-tight">900</span>
+                        <span className="text-[#e2e2e8] font-bold text-[11px] block leading-tight tabular-nums">900</span>
                         <span className="text-[#bacbbe] text-[8px] font-mono">Consumed</span>
                       </div>
                       <div>
-                        <span className="text-[#adc6ff] font-bold text-[11px] block leading-tight">1834</span>
+                        <span className="text-[#adc6ff] font-bold text-[11px] block leading-tight tabular-nums">1834</span>
                         <span className="text-[#bacbbe] text-[8px] font-mono">Remaining</span>
                       </div>
                       <div>
-                        <span className="text-[#e2e2e8] font-bold text-[11px] block leading-tight">2734</span>
+                        <span className="text-[#e2e2e8] font-bold text-[11px] block leading-tight tabular-nums">2734</span>
                         <span className="text-[#bacbbe] text-[8px] font-mono">Target</span>
                       </div>
                     </div>
@@ -971,7 +1012,7 @@ export default function LandingPage() {
                       <div className="p-2 rounded-xl bg-[#14171d] border border-[#3b4a40]/40 space-y-1.5">
                         <div className="flex items-center justify-between pb-1 border-b border-[#3b4a40]/20">
                           <span className="font-bold text-[9px] text-[#e2e2e8]">Lunch</span>
-                          <span className="text-[8px] font-mono font-bold text-[#76ffbb] bg-[#76ffbb]/10 border border-[#76ffbb]/20 px-1 py-0.5 rounded">
+                          <span className="text-[8px] font-mono font-bold text-[#76ffbb] bg-[#76ffbb]/10 border border-[#76ffbb]/20 px-1 py-0.5 rounded tabular-nums">
                             900 kcal
                           </span>
                         </div>
@@ -982,7 +1023,7 @@ export default function LandingPage() {
                             </div>
                             <div className="text-[7px] font-mono text-[#bacbbe] mt-0.5">02:27 · 10g P · 86g C · 17g F</div>
                           </div>
-                          <span className="text-[9px] font-mono font-bold text-[#e2e2e8] ml-1">540 kcal</span>
+                          <span className="text-[9px] font-mono font-bold text-[#e2e2e8] ml-1 tabular-nums">540 kcal</span>
                         </div>
                         <div className="p-1.5 rounded-lg bg-[#0c0e12] border border-[#3b4a40]/20 flex items-start justify-between">
                           <div>
@@ -991,7 +1032,7 @@ export default function LandingPage() {
                             </div>
                             <div className="text-[7px] font-mono text-[#bacbbe] mt-0.5">05:38 · 9g P · 50g C · 13g F</div>
                           </div>
-                          <span className="text-[9px] font-mono font-bold text-[#e2e2e8] ml-1">360 kcal</span>
+                          <span className="text-[9px] font-mono font-bold text-[#e2e2e8] ml-1 tabular-nums">360 kcal</span>
                         </div>
                       </div>
                     </div>
@@ -1029,7 +1070,7 @@ export default function LandingPage() {
             </div>
 
             {/* CARD 3: Multimodal Vision Sheet */}
-            <div className="flex flex-col rounded-3xl bg-[#1a1c20] border border-[#3b4a40]/40 p-4 transition-all hover:border-[#ffb690]/50 group">
+            <div className="flex flex-col rounded-3xl bg-[#1a1c20] border border-[#3b4a40]/40 p-4 transition-all duration-300 hover:border-[#ffb690]/40 hover:shadow-[0_0_25px_-5px_rgba(255,182,144,0.12)] group">
               <div className="flex items-center justify-between mb-3 px-2">
                 <span className="font-['JetBrains_Mono'] text-[11px] text-[#ffb690]">SCREEN 03 // VISION DRAWER</span>
                 <span className="inline-flex items-center gap-1 font-['JetBrains_Mono'] text-[10px] text-[#bacbbe]">
@@ -1080,7 +1121,7 @@ export default function LandingPage() {
                     </div>
 
                     <div className="pt-2">
-                      <button className="w-full py-2 rounded-xl bg-gradient-to-r from-[#00e699] via-[#76ffbb] to-[#0566d9] text-black font-['Space_Grotesk'] text-[10px] font-bold flex items-center justify-center gap-1.5 shadow-lg shadow-[#00e699]/20">
+                      <button className="w-full py-2 rounded-xl bg-gradient-to-r from-[#00e699] via-[#76ffbb] to-[#0566d9] text-black font-['Space_Grotesk'] text-[10px] font-bold flex items-center justify-center gap-1.5 shadow-lg shadow-[#00e699]/20 cursor-pointer">
                         <span className="material-symbols-outlined text-[13px]">auto_awesome</span>
                         <span>Analyze with Gemini Vision</span>
                       </button>
@@ -1116,7 +1157,7 @@ export default function LandingPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {/* Dilemma 1 */}
-              <div className="rounded-2xl bg-[#1e2024] p-6 border border-[#3b4a40]/40 flex flex-col justify-between">
+              <div className="rounded-2xl bg-[#1e2024] p-6 border border-[#3b4a40]/40 flex flex-col justify-between transition-all duration-300 hover:border-[#76ffbb]/40 hover:shadow-[0_0_20px_-5px_rgba(118,255,187,0.1)]">
                 <div>
                   <div className="flex items-center gap-2 text-[#ffb4ab] font-['JetBrains_Mono'] text-xs uppercase mb-3">
                     <span className="material-symbols-outlined text-sm">error</span>
@@ -1144,7 +1185,7 @@ export default function LandingPage() {
               </div>
 
               {/* Dilemma 2 */}
-              <div className="rounded-2xl bg-[#1e2024] p-6 border border-[#3b4a40]/40 flex flex-col justify-between">
+              <div className="rounded-2xl bg-[#1e2024] p-6 border border-[#3b4a40]/40 flex flex-col justify-between transition-all duration-300 hover:border-[#76ffbb]/40 hover:shadow-[0_0_20px_-5px_rgba(118,255,187,0.1)]">
                 <div>
                   <div className="flex items-center gap-2 text-[#ffb4ab] font-['JetBrains_Mono'] text-xs uppercase mb-3">
                     <span className="material-symbols-outlined text-sm">error</span>
@@ -1171,7 +1212,7 @@ export default function LandingPage() {
               </div>
 
               {/* Dilemma 3 */}
-              <div className="rounded-2xl bg-[#1e2024] p-6 border border-[#3b4a40]/40 flex flex-col justify-between">
+              <div className="rounded-2xl bg-[#1e2024] p-6 border border-[#3b4a40]/40 flex flex-col justify-between transition-all duration-300 hover:border-[#76ffbb]/40 hover:shadow-[0_0_20px_-5px_rgba(118,255,187,0.1)]">
                 <div>
                   <div className="flex items-center gap-2 text-[#ffb4ab] font-['JetBrains_Mono'] text-xs uppercase mb-3">
                     <span className="material-symbols-outlined text-sm">error</span>
@@ -1219,7 +1260,7 @@ export default function LandingPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* TIER 1 */}
-            <div className="rounded-2xl bg-[#1a1c20] border border-[#3b4a40]/40 p-6 flex flex-col">
+            <div className="rounded-2xl bg-[#1a1c20] border border-[#3b4a40]/40 p-6 flex flex-col transition-all duration-300 hover:border-[#76ffbb]/40">
               <div className="flex items-center justify-between pb-4 border-b border-[#3b4a40]/20 mb-4">
                 <span className="font-['JetBrains_Mono'] text-[11px] text-[#76ffbb]">TIER 01 // CLIENT DEVICE</span>
                 <span className="font-['JetBrains_Mono'] text-[10px] text-[#bacbbe]">EDGE RUNTIME</span>
@@ -1256,7 +1297,7 @@ export default function LandingPage() {
             </div>
 
             {/* TIER 2 */}
-            <div className="rounded-2xl bg-[#1e2024] border border-[#76ffbb]/30 p-6 flex flex-col glow-primary relative">
+            <div className="rounded-2xl bg-[#1e2024] border border-[#76ffbb]/30 p-6 flex flex-col glow-primary relative transition-all duration-300 hover:border-[#76ffbb]/60">
               <div className="absolute -top-3 right-6 bg-[#76ffbb] text-[#002112] text-[10px] font-['JetBrains_Mono'] px-2 py-0.5 rounded font-bold uppercase">
                 Supervisor Core
               </div>
@@ -1296,7 +1337,7 @@ export default function LandingPage() {
             </div>
 
             {/* TIER 3 */}
-            <div className="rounded-2xl bg-[#1a1c20] border border-[#3b4a40]/40 p-6 flex flex-col">
+            <div className="rounded-2xl bg-[#1a1c20] border border-[#3b4a40]/40 p-6 flex flex-col transition-all duration-300 hover:border-[#adc6ff]/40">
               <div className="flex items-center justify-between pb-4 border-b border-[#3b4a40]/20 mb-4">
                 <span className="font-['JetBrains_Mono'] text-[11px] text-[#adc6ff]">TIER 03 // PERSISTENCE</span>
                 <span className="font-['JetBrains_Mono'] text-[10px] text-[#bacbbe]">DATA LAKE</span>
@@ -1350,8 +1391,11 @@ export default function LandingPage() {
               </p>
             </div>
 
-            {/* DAG Diagram */}
-            <div className="p-8 rounded-2xl bg-[#0c0e12] border border-[#3b4a40]/40 overflow-x-auto">
+            {/* DAG Diagram with data-lenis-prevent for horizontal scrolling */}
+            <div
+              className="p-8 rounded-2xl bg-[#0c0e12] border border-[#3b4a40]/40 overflow-x-auto overscroll-contain"
+              data-lenis-prevent
+            >
               <div className="min-w-[760px] flex items-center justify-between gap-4 relative py-6">
                 {/* START Node */}
                 <div className="flex flex-col items-center">
@@ -1459,7 +1503,7 @@ export default function LandingPage() {
                 <span>→</span>
                 <span className="text-[#ffdbca] font-bold">Tier 3: OpenAI gpt-4o (Emergency Safety)</span>
               </div>
-              <span className="text-[#76ffbb] font-mono font-bold">99.98% Orchestration Uptime</span>
+              <span className="text-[#76ffbb] font-mono font-bold tabular-nums">99.98% Orchestration Uptime</span>
             </div>
           </div>
         </section>
@@ -1480,7 +1524,7 @@ export default function LandingPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* Formula 1 */}
-            <div className="p-6 rounded-2xl bg-[#1a1c20] border border-[#3b4a40]/40 flex flex-col justify-between">
+            <div className="p-6 rounded-2xl bg-[#1a1c20] border border-[#3b4a40]/40 flex flex-col justify-between transition-all duration-300 hover:border-[#76ffbb]/40">
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <span className="font-['JetBrains_Mono'] text-[11px] text-[#76ffbb]">ALGORITHM 01</span>
@@ -1489,7 +1533,7 @@ export default function LandingPage() {
                 <h3 className="font-['Space_Grotesk'] text-lg text-[#e2e2e8] font-bold mb-2">
                   Biometric Readiness Score
                 </h3>
-                <div className="p-3 my-3 rounded-lg bg-[#0c0e12] border border-[#3b4a40]/30 font-mono text-xs text-[#76ffbb] overflow-x-auto">
+                <div className="p-3 my-3 rounded-lg bg-[#0c0e12] border border-[#3b4a40]/30 font-mono text-xs text-[#76ffbb] overflow-x-auto leading-relaxed">
                   Readiness = max(0, ⌊min(SleepMin/420, 1.0) × 80⌋ - Pen<sub>steps</sub> - Pen<sub>RHR</sub>)
                 </div>
                 <p className="font-['Geist'] text-xs text-[#bacbbe]">
@@ -1503,7 +1547,7 @@ export default function LandingPage() {
             </div>
 
             {/* Formula 2 */}
-            <div className="p-6 rounded-2xl bg-[#1a1c20] border border-[#3b4a40]/40 flex flex-col justify-between">
+            <div className="p-6 rounded-2xl bg-[#1a1c20] border border-[#3b4a40]/40 flex flex-col justify-between transition-all duration-300 hover:border-[#adc6ff]/40">
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <span className="font-['JetBrains_Mono'] text-[11px] text-[#76ffbb]">ALGORITHM 02</span>
@@ -1528,7 +1572,7 @@ export default function LandingPage() {
             </div>
 
             {/* Formula 3 */}
-            <div className="p-6 rounded-2xl bg-[#1a1c20] border border-[#3b4a40]/40 flex flex-col justify-between">
+            <div className="p-6 rounded-2xl bg-[#1a1c20] border border-[#3b4a40]/40 flex flex-col justify-between transition-all duration-300 hover:border-[#ffdbca]/40">
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <span className="font-['JetBrains_Mono'] text-[11px] text-[#76ffbb]">ALGORITHM 03</span>
@@ -1553,7 +1597,7 @@ export default function LandingPage() {
             </div>
 
             {/* Formula 4 */}
-            <div className="p-6 rounded-2xl bg-[#1a1c20] border border-[#3b4a40]/40 flex flex-col justify-between">
+            <div className="p-6 rounded-2xl bg-[#1a1c20] border border-[#3b4a40]/40 flex flex-col justify-between transition-all duration-300 hover:border-[#76ffbb]/40">
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <span className="font-['JetBrains_Mono'] text-[11px] text-[#76ffbb]">ALGORITHM 04</span>
@@ -1578,7 +1622,7 @@ export default function LandingPage() {
             </div>
 
             {/* Formula 5 */}
-            <div className="p-6 rounded-2xl bg-[#1a1c20] border border-[#3b4a40]/40 flex flex-col justify-between">
+            <div className="p-6 rounded-2xl bg-[#1a1c20] border border-[#3b4a40]/40 flex flex-col justify-between transition-all duration-300 hover:border-[#adc6ff]/40">
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <span className="font-['JetBrains_Mono'] text-[11px] text-[#76ffbb]">ALGORITHM 05</span>
@@ -1602,7 +1646,7 @@ export default function LandingPage() {
             </div>
 
             {/* Formula 6 */}
-            <div className="p-6 rounded-2xl bg-[#1a1c20] border border-[#3b4a40]/40 flex flex-col justify-between">
+            <div className="p-6 rounded-2xl bg-[#1a1c20] border border-[#3b4a40]/40 flex flex-col justify-between transition-all duration-300 hover:border-[#76ffbb]/40">
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <span className="font-['JetBrains_Mono'] text-[11px] text-[#76ffbb]">ALGORITHM 06</span>
@@ -1645,7 +1689,7 @@ export default function LandingPage() {
                 </p>
 
                 <div className="space-y-4">
-                  <div className="p-4 rounded-xl bg-[#1e2024] border border-[#3b4a40]/30">
+                  <div className="p-4 rounded-xl bg-[#1e2024] border border-[#3b4a40]/30 transition-all hover:border-[#76ffbb]/30">
                     <div className="font-['Space_Grotesk'] text-sm text-[#e2e2e8] font-semibold flex items-center gap-2 mb-1">
                       <span className="material-symbols-outlined text-[#76ffbb]">nutrition</span>
                       <span>Nutrition Universe</span>
@@ -1656,7 +1700,7 @@ export default function LandingPage() {
                     </p>
                   </div>
 
-                  <div className="p-4 rounded-xl bg-[#1e2024] border border-[#3b4a40]/30">
+                  <div className="p-4 rounded-xl bg-[#1e2024] border border-[#3b4a40]/30 transition-all hover:border-[#adc6ff]/30">
                     <div className="font-['Space_Grotesk'] text-sm text-[#e2e2e8] font-semibold flex items-center gap-2 mb-1">
                       <span className="material-symbols-outlined text-[#adc6ff]">exercise</span>
                       <span>Workout Universe (Tri-Mode Silhouettes)</span>
@@ -1669,7 +1713,7 @@ export default function LandingPage() {
                 </div>
               </div>
 
-              {/* 52-Week Heatmap */}
+              {/* 52-Week Heatmap with data-lenis-prevent */}
               <div className="lg:col-span-7">
                 <div className="p-6 rounded-2xl bg-[#1a1c20] border border-[#3b4a40]/40">
                   <div className="flex items-center justify-between mb-4">
@@ -1692,7 +1736,7 @@ export default function LandingPage() {
                   </div>
 
                   {/* Heatmap Grid */}
-                  <div className="overflow-x-auto py-2">
+                  <div className="overflow-x-auto py-2 overscroll-contain" data-lenis-prevent>
                     <div className="grid grid-rows-7 grid-flow-col gap-1 w-max">
                       {heatmapCells.map((level, idx) => {
                         const bgClasses = [
@@ -1705,7 +1749,7 @@ export default function LandingPage() {
                         return (
                           <span
                             key={idx}
-                            className={`w-3 h-3 rounded-xs ${bgClasses[level]} transition-transform hover:scale-125 cursor-pointer`}
+                            className={`w-3 h-3 rounded-xs ${bgClasses[level]} transition-transform hover:scale-150 cursor-pointer`}
                             title={`Day ${idx + 1}`}
                           />
                         );
@@ -1715,15 +1759,15 @@ export default function LandingPage() {
 
                   <div className="grid grid-cols-3 gap-4 mt-6 pt-6 border-t border-[#3b4a40]/30 text-center">
                     <div>
-                      <div className="font-['Space_Grotesk'] text-xl font-bold text-[#76ffbb]">96.4%</div>
+                      <div className="font-['Space_Grotesk'] text-xl font-bold text-[#76ffbb] tabular-nums">96.4%</div>
                       <div className="font-['JetBrains_Mono'] text-[10px] text-[#bacbbe]">Weigh-In Adherence</div>
                     </div>
                     <div>
-                      <div className="font-['Space_Grotesk'] text-xl font-bold text-[#adc6ff]">284 Days</div>
+                      <div className="font-['Space_Grotesk'] text-xl font-bold text-[#adc6ff] tabular-nums">284 Days</div>
                       <div className="font-['JetBrains_Mono'] text-[10px] text-[#bacbbe]">Active Telemetry Stream</div>
                     </div>
                     <div>
-                      <div className="font-['Space_Grotesk'] text-xl font-bold text-[#ffdbca]">0 Days</div>
+                      <div className="font-['Space_Grotesk'] text-xl font-bold text-[#ffdbca] tabular-nums">0 Days</div>
                       <div className="font-['JetBrains_Mono'] text-[10px] text-[#bacbbe]">Compliance Punishment</div>
                     </div>
                   </div>
@@ -1754,10 +1798,10 @@ export default function LandingPage() {
               <div className="font-['JetBrains_Mono'] text-[11px] text-[#bacbbe] mb-3">SELECT REAL TEST INGRESS</div>
               <div className="space-y-3 mb-6">
                 <button
-                  className={`w-full text-left p-3.5 rounded-xl border transition-all flex items-center justify-between ${
+                  className={`w-full text-left p-3.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
                     activeDish === "fried_rice"
-                      ? "border-[#76ffbb]/50 bg-[#1e2024]"
-                      : "border-[#3b4a40]/30 bg-[#0c0e12]"
+                      ? "border-[#76ffbb]/50 bg-[#1e2024] shadow-[0_0_15px_-3px_rgba(118,255,187,0.15)]"
+                      : "border-[#3b4a40]/30 bg-[#0c0e12] hover:border-[#3b4a40]"
                   }`}
                   onClick={() => handleSelectDish("fried_rice")}
                 >
@@ -1767,14 +1811,14 @@ export default function LandingPage() {
                     </div>
                     <div className="font-['JetBrains_Mono'] text-[10px] text-[#bacbbe]">Indian / Asian Lunch Ingress</div>
                   </div>
-                  <span className="font-['JetBrains_Mono'] text-xs text-[#76ffbb] font-bold">540 kcal</span>
+                  <span className="font-['JetBrains_Mono'] text-xs text-[#76ffbb] font-bold tabular-nums">540 kcal</span>
                 </button>
 
                 <button
-                  className={`w-full text-left p-3.5 rounded-xl border transition-all flex items-center justify-between ${
+                  className={`w-full text-left p-3.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
                     activeDish === "poha_curd"
-                      ? "border-[#76ffbb]/50 bg-[#1e2024]"
-                      : "border-[#3b4a40]/30 bg-[#0c0e12]"
+                      ? "border-[#76ffbb]/50 bg-[#1e2024] shadow-[0_0_15px_-3px_rgba(118,255,187,0.15)]"
+                      : "border-[#3b4a40]/30 bg-[#0c0e12] hover:border-[#3b4a40]"
                   }`}
                   onClick={() => handleSelectDish("poha_curd")}
                 >
@@ -1784,14 +1828,14 @@ export default function LandingPage() {
                     </div>
                     <div className="font-['JetBrains_Mono'] text-[10px] text-[#bacbbe]">Frequent Staple (1-Tap Re-Log)</div>
                   </div>
-                  <span className="font-['JetBrains_Mono'] text-xs text-[#adc6ff] font-bold">360 kcal</span>
+                  <span className="font-['JetBrains_Mono'] text-xs text-[#adc6ff] font-bold tabular-nums">360 kcal</span>
                 </button>
 
                 <button
-                  className={`w-full text-left p-3.5 rounded-xl border transition-all flex items-center justify-between ${
+                  className={`w-full text-left p-3.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
                     activeDish === "chicken_bowl"
-                      ? "border-[#76ffbb]/50 bg-[#1e2024]"
-                      : "border-[#3b4a40]/30 bg-[#0c0e12]"
+                      ? "border-[#76ffbb]/50 bg-[#1e2024] shadow-[0_0_15px_-3px_rgba(118,255,187,0.15)]"
+                      : "border-[#3b4a40]/30 bg-[#0c0e12] hover:border-[#3b4a40]"
                   }`}
                   onClick={() => handleSelectDish("chicken_bowl")}
                 >
@@ -1801,7 +1845,7 @@ export default function LandingPage() {
                     </div>
                     <div className="font-['JetBrains_Mono'] text-[10px] text-[#bacbbe]">High-Protein Ingress</div>
                   </div>
-                  <span className="font-['JetBrains_Mono'] text-xs text-[#ffdbca] font-bold">680 kcal</span>
+                  <span className="font-['JetBrains_Mono'] text-xs text-[#ffdbca] font-bold tabular-nums">680 kcal</span>
                 </button>
               </div>
 
@@ -1827,7 +1871,7 @@ export default function LandingPage() {
                   Reference Dimension: <span className="text-[#e2e2e8]">10.5 inches (±0.2 cm)</span>
                 </div>
                 <div>
-                  Estimated Volume: <span className="text-[#e2e2e8]">{simDish.volume}</span>
+                  Estimated Volume: <span className="text-[#e2e2e8] tabular-nums">{simDish.volume}</span>
                 </div>
                 <div>
                   Model: <span className="text-[#76ffbb] font-mono">gemini-3.8-flash-vision</span>
@@ -1851,22 +1895,22 @@ export default function LandingPage() {
               <div className="grid grid-cols-4 gap-3 mb-6">
                 <div className="p-3 rounded-xl bg-[#0c0e12] border border-[#3b4a40]/20 text-center">
                   <div className="font-['JetBrains_Mono'] text-[10px] text-[#bacbbe]">ENERGY</div>
-                  <div className="font-['Space_Grotesk'] text-xl text-[#e2e2e8] font-bold mt-1">{simDish.kcal}</div>
+                  <div className="font-['Space_Grotesk'] text-xl text-[#e2e2e8] font-bold mt-1 tabular-nums">{simDish.kcal}</div>
                   <div className="font-['JetBrains_Mono'] text-[10px] text-[#bacbbe]">kcal</div>
                 </div>
                 <div className="p-3 rounded-xl bg-[#0c0e12] border border-[#3b4a40]/20 text-center">
                   <div className="font-['JetBrains_Mono'] text-[10px] text-[#76ffbb]">PROTEIN</div>
-                  <div className="font-['Space_Grotesk'] text-xl text-[#76ffbb] font-bold mt-1">{simDish.protein}</div>
+                  <div className="font-['Space_Grotesk'] text-xl text-[#76ffbb] font-bold mt-1 tabular-nums">{simDish.protein}</div>
                   <div className="font-['JetBrains_Mono'] text-[10px] text-[#bacbbe]">Target 205g</div>
                 </div>
                 <div className="p-3 rounded-xl bg-[#0c0e12] border border-[#3b4a40]/20 text-center">
                   <div className="font-['JetBrains_Mono'] text-[10px] text-[#adc6ff]">CARBS</div>
-                  <div className="font-['Space_Grotesk'] text-xl text-[#adc6ff] font-bold mt-1">{simDish.carbs}</div>
+                  <div className="font-['Space_Grotesk'] text-xl text-[#adc6ff] font-bold mt-1 tabular-nums">{simDish.carbs}</div>
                   <div className="font-['JetBrains_Mono'] text-[10px] text-[#bacbbe]">Target 204g</div>
                 </div>
                 <div className="p-3 rounded-xl bg-[#0c0e12] border border-[#3b4a40]/20 text-center">
                   <div className="font-['JetBrains_Mono'] text-[10px] text-[#ffdbca]">FATS</div>
-                  <div className="font-['Space_Grotesk'] text-xl text-[#ffdbca] font-bold mt-1">{simDish.fat}</div>
+                  <div className="font-['Space_Grotesk'] text-xl text-[#ffdbca] font-bold mt-1 tabular-nums">{simDish.fat}</div>
                   <div className="font-['JetBrains_Mono'] text-[10px] text-[#bacbbe]">Target 122g</div>
                 </div>
               </div>
@@ -1878,7 +1922,7 @@ export default function LandingPage() {
                     <span className="material-symbols-outlined text-sm text-[#76ffbb]">terminal</span>
                     INFERENCE TRACE // GEMINI 3.8 FLASH
                   </span>
-                  <span className="text-[#bacbbe]">t = 342ms</span>
+                  <span className="text-[#bacbbe] tabular-nums">t = 342ms</span>
                 </div>
                 <p className="text-[#bacbbe] leading-relaxed">{simDish.notes}</p>
                 <div className="text-[#76ffbb] pt-2 flex items-center gap-2">
@@ -2011,7 +2055,7 @@ export default function LandingPage() {
                   Node 20 LTS
                 </span>
                 <button
-                  className="px-3 py-1 rounded bg-[#00e699] text-[#002112] font-['Space_Grotesk'] text-xs font-bold hover:brightness-105 active:scale-95 transition-all"
+                  className="px-3 py-1 rounded bg-[#00e699] text-[#002112] font-['Space_Grotesk'] text-xs font-bold hover:brightness-105 active:scale-95 transition-all cursor-pointer"
                   onClick={handleCopyCommands}
                 >
                   {copiedTerminal ? "Copied!" : "Copy All"}
@@ -2019,7 +2063,10 @@ export default function LandingPage() {
               </div>
             </div>
 
-            <div className="p-4 rounded-xl bg-[#0c0e12] font-mono text-xs text-[#e2e2e8] overflow-x-auto space-y-2 border border-[#3b4a40]/30">
+            <div
+              className="p-4 rounded-xl bg-[#0c0e12] font-mono text-xs text-[#e2e2e8] overflow-x-auto space-y-2 border border-[#3b4a40]/30 overscroll-contain"
+              data-lenis-prevent
+            >
               <div className="text-[#bacbbe]"># 1. Clone &amp; spin up distributed multi-agent cluster</div>
               <div className="text-[#76ffbb]">
                 git clone https://github.com/fitmatrix-informatics/fitmatrix-core.git &amp;&amp; cd fitmatrix-core
@@ -2047,19 +2094,39 @@ export default function LandingPage() {
             </span>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-6 font-['JetBrains_Mono'] text-xs text-[#bacbbe]">
-            <a className="hover:text-[#76ffbb] transition-colors" href="#architecture">
+            <a
+              className="hover:text-[#76ffbb] transition-colors cursor-pointer"
+              href="#architecture"
+              onClick={(e) => scrollToSection(e, "#architecture")}
+            >
               Architecture Spec
             </a>
-            <a className="hover:text-[#76ffbb] transition-colors" href="#architecture">
+            <a
+              className="hover:text-[#76ffbb] transition-colors cursor-pointer"
+              href="#architecture"
+              onClick={(e) => scrollToSection(e, "#architecture")}
+            >
               LangGraph DAG
             </a>
-            <a className="hover:text-[#76ffbb] transition-colors" href="#hero">
+            <a
+              className="hover:text-[#76ffbb] transition-colors cursor-pointer"
+              href="#hero"
+              onClick={(e) => scrollToSection(e, "#hero")}
+            >
               Health Connect Sync
             </a>
-            <a className="hover:text-[#76ffbb] transition-colors" href="#formulations">
+            <a
+              className="hover:text-[#76ffbb] transition-colors cursor-pointer"
+              href="#formulations"
+              onClick={(e) => scrollToSection(e, "#formulations")}
+            >
               Privacy Protocol
             </a>
-            <a className="hover:text-[#76ffbb] transition-colors" href="#reproducibility">
+            <a
+              className="hover:text-[#76ffbb] transition-colors cursor-pointer"
+              href="#reproducibility"
+              onClick={(e) => scrollToSection(e, "#reproducibility")}
+            >
               Terms of Compute
             </a>
           </div>
