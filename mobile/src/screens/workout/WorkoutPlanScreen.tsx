@@ -7,62 +7,13 @@ import {
   StyleSheet,
   StatusBar,
   Alert,
+  Modal,
+  TextInput,
 } from 'react-native';
 import Svg, { Rect, Path, Line } from 'react-native-svg';
 import { useSafeTopInset } from '../../hooks/useSafeTopInset';
-import { useTrainerStore } from '../../store/useTrainerStore';
+import { useWorkoutScheduleStore } from '../../store/useWorkoutScheduleStore';
 import { useDashboardTabStore } from '../../store/useDashboardTabStore';
-
-interface RoutineScheduleItem {
-  id: string;
-  name: string;
-  exerciseCount: number;
-  iconType: 'push' | 'pull' | 'legs';
-}
-
-interface DaySchedule {
-  dayName: string;
-  isRest: boolean;
-  routines: RoutineScheduleItem[];
-}
-
-const INITIAL_SCHEDULE: DaySchedule[] = [
-  {
-    dayName: 'Monday',
-    isRest: false,
-    routines: [{ id: '1', name: 'Push Day', exerciseCount: 6, iconType: 'push' }],
-  },
-  {
-    dayName: 'Tuesday',
-    isRest: true,
-    routines: [],
-  },
-  {
-    dayName: 'Wednesday',
-    isRest: false,
-    routines: [{ id: '2', name: 'Pull Day', exerciseCount: 5, iconType: 'pull' }],
-  },
-  {
-    dayName: 'Thursday',
-    isRest: true,
-    routines: [],
-  },
-  {
-    dayName: 'Friday',
-    isRest: false,
-    routines: [{ id: '3', name: 'Leg Day', exerciseCount: 6, iconType: 'legs' }],
-  },
-  {
-    dayName: 'Saturday',
-    isRest: true,
-    routines: [],
-  },
-  {
-    dayName: 'Sunday',
-    isRest: true,
-    routines: [],
-  },
-];
 
 interface WorkoutPlanScreenProps {
   onSelectRoutine?: (routineName: string) => void;
@@ -77,51 +28,34 @@ export const WorkoutPlanScreen: React.FC<WorkoutPlanScreenProps> = ({
 }) => {
   const topInset = useSafeTopInset(10);
   const { setActiveDashboard } = useDashboardTabStore();
-  const [schedule, setSchedule] = useState<DaySchedule[]>(INITIAL_SCHEDULE);
+  const { schedule, toggleRestDay, addRoutine, removeRoutine } = useWorkoutScheduleStore();
 
-  const handleToggleRest = (index: number) => {
-    const updated = [...schedule];
-    const day = updated[index];
-    if (day.isRest) {
-      day.isRest = false;
-      day.routines = [
-        {
-          id: `r_${Date.now()}`,
-          name: 'Custom Workout',
-          exerciseCount: 4,
-          iconType: 'push',
-        },
-      ];
-    } else {
-      day.isRest = true;
-      day.routines = [];
-    }
-    setSchedule(updated);
-  };
+  // Add routine modal state
+  const [modalVisible, setModalVisible] = useState(false);
+  const [targetDayIndex, setTargetDayIndex] = useState<number>(0);
+  const [routineNameInput, setRoutineNameInput] = useState('');
+  const [exerciseCountInput, setExerciseCountInput] = useState('5');
+  const [selectedType, setSelectedType] = useState<'push' | 'pull' | 'legs'>('push');
 
-  const handleRemoveRoutine = (dayIndex: number, routineId: string) => {
-    const updated = [...schedule];
-    updated[dayIndex].routines = updated[dayIndex].routines.filter(r => r.id !== routineId);
-    if (updated[dayIndex].routines.length === 0) {
-      updated[dayIndex].isRest = true;
-    }
-    setSchedule(updated);
-  };
-
-  const handleAddRoutine = (dayIndex: number) => {
+  const handleOpenAddRoutine = (dayIndex: number) => {
     if (onAddRoutine) {
       onAddRoutine(schedule[dayIndex].dayName);
     } else {
-      const updated = [...schedule];
-      updated[dayIndex].isRest = false;
-      updated[dayIndex].routines.push({
-        id: `r_${Date.now()}`,
-        name: 'New Routine',
-        exerciseCount: 4,
-        iconType: 'push',
-      });
-      setSchedule(updated);
+      setTargetDayIndex(dayIndex);
+      setRoutineNameInput('');
+      setExerciseCountInput('5');
+      setSelectedType('push');
+      setModalVisible(true);
     }
+  };
+
+  const handleConfirmAddRoutine = () => {
+    const trimmed = routineNameInput.trim();
+    const finalName = trimmed || `${selectedType.toUpperCase()} Workout`;
+    const count = parseInt(exerciseCountInput, 10) || 5;
+
+    addRoutine(targetDayIndex, finalName, count, selectedType);
+    setModalVisible(false);
   };
 
   return (
@@ -213,7 +147,7 @@ export const WorkoutPlanScreen: React.FC<WorkoutPlanScreenProps> = ({
                 <Text style={styles.dayNameText}>{day.dayName}</Text>
                 <TouchableOpacity
                   style={styles.restPill}
-                  onPress={() => handleToggleRest(dayIdx)}
+                  onPress={() => toggleRestDay(dayIdx)}
                   activeOpacity={0.7}
                 >
                   <Text style={styles.restPillText}>Rest ›</Text>
@@ -225,7 +159,7 @@ export const WorkoutPlanScreen: React.FC<WorkoutPlanScreenProps> = ({
                 <View style={styles.activeDayHeader}>
                   <Text style={styles.dayNameText}>{day.dayName}</Text>
                   <Text style={styles.routineCountText}>
-                    {day.routines.length} routines
+                    {day.routines.length} {day.routines.length === 1 ? 'routine' : 'routines'}
                   </Text>
                 </View>
 
@@ -258,7 +192,7 @@ export const WorkoutPlanScreen: React.FC<WorkoutPlanScreenProps> = ({
                     {/* Delete Routine Cross */}
                     <TouchableOpacity
                       style={styles.crossBtn}
-                      onPress={() => handleRemoveRoutine(dayIdx, routine.id)}
+                      onPress={() => removeRoutine(dayIdx, routine.id)}
                       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     >
                       <Text style={styles.crossText}>✕</Text>
@@ -269,7 +203,7 @@ export const WorkoutPlanScreen: React.FC<WorkoutPlanScreenProps> = ({
                 {/* + Add Routine Button */}
                 <TouchableOpacity
                   style={styles.addRoutineBtn}
-                  onPress={() => handleAddRoutine(dayIdx)}
+                  onPress={() => handleOpenAddRoutine(dayIdx)}
                   activeOpacity={0.7}
                 >
                   <Text style={styles.addRoutineText}>+ Add routine</Text>
@@ -279,6 +213,62 @@ export const WorkoutPlanScreen: React.FC<WorkoutPlanScreenProps> = ({
           </View>
         ))}
       </ScrollView>
+
+      {/* Routine Creation Modal */}
+      <Modal
+        visible={modalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>
+              Add Routine · {schedule[targetDayIndex]?.dayName}
+            </Text>
+
+            {/* Routine Name Input */}
+            <Text style={styles.inputLabel}>Routine Name</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. Upper Body Hypertrophy"
+              placeholderTextColor="#6b7280"
+              value={routineNameInput}
+              onChangeText={setRoutineNameInput}
+            />
+
+            {/* Quick Presets */}
+            <View style={styles.chipsRow}>
+              {['Push Day', 'Pull Day', 'Leg Day', 'Upper Body', 'Lower Body', 'Core & Cardio'].map(preset => (
+                <TouchableOpacity
+                  key={preset}
+                  style={styles.chip}
+                  onPress={() => setRoutineNameInput(preset)}
+                >
+                  <Text style={styles.chipText}>{preset}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Buttons */}
+            <View style={styles.modalButtonsRow}>
+              <TouchableOpacity
+                style={styles.cancelModalBtn}
+                onPress={() => setModalVisible(false)}
+              >
+                <Text style={styles.cancelModalText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.saveModalBtn}
+                onPress={handleConfirmAddRoutine}
+              >
+                <Text style={styles.saveModalText}>Add Routine</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -491,6 +481,87 @@ const styles = StyleSheet.create({
     color: '#22c55e',
     fontSize: 14,
     fontWeight: '600',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    width: '100%',
+    backgroundColor: '#161922',
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#242838',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#ffffff',
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 13,
+    color: '#9ca3af',
+    fontWeight: '500',
+    marginBottom: 6,
+  },
+  input: {
+    backgroundColor: '#0e1017',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    color: '#ffffff',
+    fontSize: 15,
+    borderWidth: 1,
+    borderColor: '#242838',
+    marginBottom: 12,
+  },
+  chipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 20,
+  },
+  chip: {
+    backgroundColor: '#202534',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  chipText: {
+    fontSize: 12,
+    color: '#d1d5db',
+    fontWeight: '600',
+  },
+  modalButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
+  cancelModalBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  cancelModalText: {
+    color: '#9ca3af',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  saveModalBtn: {
+    backgroundColor: '#22c55e',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  saveModalText: {
+    color: '#000000',
+    fontSize: 15,
+    fontWeight: '700',
   },
 });
 

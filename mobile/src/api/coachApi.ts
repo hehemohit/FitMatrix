@@ -534,3 +534,103 @@ export const performWeeklyCheckIn = async (userId = 'usr_dev_1'): Promise<CheckI
   return data;
 };
 
+// ─── Workout Universe Sync API ────────────────────────────────────────────────
+
+export const syncCompletedWorkoutSession = async (
+  workout: {
+    id: string;
+    routineName: string;
+    startedAt: string;
+    completedAt: string;
+    durationSeconds: number;
+    totalVolumeLb: number;
+    totalSets: number;
+    totalReps: number;
+    trainedMuscles: string[];
+    exercises: any[];
+    notes?: string;
+  },
+  userId = 'usr_dev_1'
+): Promise<void> => {
+  await apiClient.post('/api/v1/fitness/sessions', {
+    user_id: userId,
+    session_id: workout.id,
+    routine_name: workout.routineName,
+    started_at: workout.startedAt,
+    completed_at: workout.completedAt,
+    duration_seconds: workout.durationSeconds,
+    total_volume_lb: workout.totalVolumeLb,
+    total_sets: workout.totalSets,
+    total_reps: workout.totalReps,
+    trained_muscles: workout.trainedMuscles,
+    exercises: workout.exercises.map(ex => ({
+      exercise_id: ex.exerciseId,
+      name: ex.name,
+      category: ex.category,
+      target: ex.target,
+      secondary: ex.secondary || [],
+      equipment: ex.equipment,
+      sets: ex.sets.map((s: any) => ({
+        set_number: s.setNumber,
+        type: s.type || 'normal',
+        weight: s.weight,
+        reps: s.reps,
+        rir: s.rir,
+        rpe: s.rpe,
+        is_completed: s.isCompleted,
+      })),
+    })),
+    notes: workout.notes,
+  });
+};
+
+export const syncGymCheckIn = async (
+  record: {
+    id: string;
+    gymName: string;
+    checkInTime: string;
+    checkOutTime?: string;
+    durationMinutes?: number;
+    date: string;
+  },
+  userId = 'usr_dev_1'
+): Promise<void> => {
+  await apiClient.post('/api/v1/fitness/check-in', {
+    user_id: userId,
+    check_in_id: record.id,
+    gym_name: record.gymName,
+    check_in_time: record.checkInTime,
+    check_out_time: record.checkOutTime,
+    duration_minutes: record.durationMinutes,
+    date: record.date,
+  });
+};
+
+export const syncWeeklySchedule = async (
+  schedule: any[],
+  userId = 'usr_dev_1'
+): Promise<void> => {
+  await apiClient.put('/api/v1/fitness/schedule', {
+    user_id: userId,
+    schedule: schedule.map(day => ({
+      day_name: day.dayName,
+      is_rest: day.isRest,
+      routines: (day.routines || []).map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        exercise_count: r.exerciseCount,
+        exercise_ids: r.exerciseIds || [],
+        icon_type: r.iconType || 'push',
+      })),
+    })),
+  });
+};
+
+export const fetchWeeklySchedule = async (userId = 'usr_dev_1'): Promise<any[] | null> => {
+  const { data } = await apiClient.get('/api/v1/fitness/schedule', {
+    params: { user_id: userId },
+  });
+  return data.data;
+};
+
+

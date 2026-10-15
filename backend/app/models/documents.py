@@ -262,3 +262,100 @@ class CustomBarcodeDocument(Document):
         name = "custom_barcodes"
 
 
+# ─── Workout Universe Beanie Documents ─────────────────────────────────────────
+
+class CompletedSetData(BaseModel):
+    set_number: int
+    type: str = "normal"
+    weight: float
+    reps: int
+    rir: Optional[int] = None
+    rpe: Optional[float] = None
+    is_completed: bool = True
+
+
+class CompletedExerciseData(BaseModel):
+    exercise_id: str
+    name: str
+    category: Optional[str] = None
+    target: Optional[str] = None
+    secondary: List[str] = Field(default_factory=list)
+    equipment: Optional[str] = None
+    sets: List[CompletedSetData] = Field(default_factory=list)
+
+
+class WorkoutSessionDocument(Document):
+    """
+    Collection: workout_sessions
+    Full record of completed workouts, volume, sets, and muscle recruitment.
+    """
+    session_id: Annotated[str, Indexed(unique=True)]
+    user_id: Annotated[str, Indexed()]
+    routine_name: str
+    started_at: datetime
+    completed_at: datetime
+    duration_seconds: int
+    total_volume_lb: float
+    total_sets: int
+    total_reps: int
+    trained_muscles: List[str] = Field(default_factory=list)
+    exercises: List[CompletedExerciseData] = Field(default_factory=list)
+    notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Settings:
+        name = "workout_sessions"
+        indexes = [
+            [("user_id", 1), ("completed_at", -1)],
+        ]
+
+
+class GymCheckInDocument(Document):
+    """
+    Collection: gym_check_ins
+    History of physical gym attendance records and duration.
+    """
+    check_in_id: Annotated[str, Indexed(unique=True)]
+    user_id: Annotated[str, Indexed()]
+    gym_name: str
+    check_in_time: datetime
+    check_out_time: Optional[datetime] = None
+    duration_minutes: Optional[int] = None
+    date: str                                   # YYYY-MM-DD
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Settings:
+        name = "gym_check_ins"
+        indexes = [
+            [("user_id", 1), ("date", -1)],
+        ]
+
+
+class RoutineScheduleItemData(BaseModel):
+    id: str
+    name: str
+    exercise_count: int = 4
+    exercise_ids: List[str] = Field(default_factory=list)
+    icon_type: str = "push"
+
+
+class DayScheduleData(BaseModel):
+    day_name: str
+    is_rest: bool = False
+    routines: List[RoutineScheduleItemData] = Field(default_factory=list)
+
+
+class WeeklyScheduleDocument(Document):
+    """
+    Collection: weekly_schedules
+    User's active 7-day Monday to Sunday workout schedule.
+    """
+    user_id: Annotated[str, Indexed(unique=True)]
+    schedule: List[DayScheduleData] = Field(default_factory=list)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Settings:
+        name = "weekly_schedules"
+
+
+

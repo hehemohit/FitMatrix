@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { createMMKV, type MMKV } from 'react-native-mmkv';
 import { WorkoutSummaryData, ActiveWorkoutExercise } from './useWorkoutSessionStore';
+import { syncCompletedWorkoutSession } from '../api/coachApi';
 
 export interface CompletedSetRecord {
   setNumber: number;
@@ -118,6 +119,12 @@ export const useWorkoutHistoryStore = create<WorkoutHistoryState>((set, get) => 
     const updated = [newRecord, ...get().workouts];
     persistWorkouts(updated);
     set({ workouts: updated });
+
+    // Background cloud sync to MongoDB Atlas
+    syncCompletedWorkoutSession(newRecord).catch(err => {
+      console.warn('[useWorkoutHistoryStore] Background workout cloud sync failed (offline?):', err);
+    });
+
     return newRecord;
   },
 

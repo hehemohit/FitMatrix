@@ -17,6 +17,13 @@ from app.models.documents import (
     UserDocument,
     DailyMetricDocument,
     NutritionLogDocument,
+    WorkoutSessionDocument,
+    CompletedExerciseData,
+    CompletedSetData,
+    GymCheckInDocument,
+    WeeklyScheduleDocument,
+    DayScheduleData,
+    RoutineScheduleItemData,
 )
 
 router = APIRouter(prefix="/api/v1/fitness", tags=["fitness"])
@@ -291,3 +298,200 @@ async def get_habits_history(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── 5. Workout Session Endpoints ─────────────────────────────────────────────
+
+class CompletedWorkoutRequest(BaseModel):
+    user_id: str = "usr_dev_1"
+    session_id: str
+    routine_name: str
+    started_at: datetime
+    completed_at: datetime
+    duration_seconds: int
+    total_volume_lb: float
+    total_sets: int
+    total_reps: int
+    trained_muscles: List[str] = Field(default_factory=list)
+    exercises: List[CompletedExerciseData] = Field(default_factory=list)
+    notes: Optional[str] = None
+
+
+@router.post("/sessions")
+async def record_workout_session(payload: CompletedWorkoutRequest):
+    """
+    Saves a completed workout session into MongoDB Atlas and links
+    calories burned to the user's daily_log document.
+    """
+    try:
+        # 1. Upsert WorkoutSessionDocument
+        existing = await WorkoutSessionDocument.find_one(
+            WorkoutSessionDocument.session_id == payload.session_id
+        )
+        if existing:
+            existing.routine_name = payload.routine_name
+            existing.completed_at = payload.completed_at
+            existing.duration_seconds = payload.duration_seconds
+            existing.total_volume_lb = payload.total_volume_lb
+            existing.total_sets = payload.total_sets
+            existing.total_reps = payload.total_reps
+            existing.trained_muscles = payload.trained_muscles
+            existing.exercises = payload.exercises
+            existing.notes = payload.notes
+            await existing.save()
+            doc = existing
+        else:
+            doc = WorkoutSessionDocument(
+                session_id=payload.session_id,
+                user_id=payload.user_id,
+                routine_name=payload.routine_name,
+                started_at=payload.started_at,
+                completed_at=payload.completed_at,
+                duration_seconds=payload.duration_seconds,
+                total_volume_lb=payload.total_volume_lb,
+                total_sets=payload.total_sets,
+                total_reps=payload.total_reps,
+                trained_muscles=payload.trained_muscles,
+                exercises=payload.exercises,
+                notes=payload.notes,
+            )
+            await doc.insert()
+
+        # 2. Add to DailyLog workout_logs
+        date_str = payload.completed_at.strftime("%Y-%m-%d")
+        daily_log = await DailyLogDocument.find_one(
+            DailyLogDocument.user_id == payload.user_id,
+            DailyLogDocument.date_id == date_str,
+        )
+        if daily_log:
+            cals_est = int(payload.duration_seconds / 60.0 * 6.5)  # ~6.5 kcal/min
+            daily_log.workout_logs.append(
+                WorkoutItem(
+                    workout_id=payload.session_id,
+                    activity_type=payload.routine_name,
+                    calories_burned=cals_est,
+                    duration_minutes=int(payload.duration_seconds / 60),
+                    timestamp=payload.completed_at,
+                )
+            )
+            daily_log.total_calories_burned += cals_est
+            daily_log.updated_at = datetime.utcnow()
+            await daily_log.save()
+
+        return {"success": True, "data": {"session_id": doc.session_id}}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/sessions")
+async def get_workout_sessions(
+    user_id: str = Query("usr_dev_1"),
+    limit: int = Query(50),
+):
+    """
+    Retrieves recent completed workout sessions for progress & stats.
+    """
+    try:
+        sessions = (
+            await WorkoutSessionDocument.find(
+                WorkoutSessionDocument.user_id == user_id
+            )
+            .sort(-WorkoutSessionDocument.completed_at)
+            .limit(limit)
+            .to_list()
+        )
+        return {"success": True, "data": sessions}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── 6. Gym Check-In Endpoints ────────────────────────────────────────────────
+
+class CheckInRequest(BaseModel):
+    user_id: str = "usr_dev_1"
+    check_in_id: str
+    gym_name: str = "FitMatrix Partner Gym"
+    check_in_time: datetime
+    check_out_time: Optional[datetime] = None
+    duration_minutes: Optional[int] = None
+    date: str
+
+
+@router.post("/check-in")
+async def log_gym_check_in(payload: CheckInRequest):
+    """
+    Records or updates a gym attendance check-in.
+    """
+    try:
+        existing = await GymCheckInDocument.find_one(
+            GymCheckInDocument.check_in_id == payload.check_in_id
+        )
+        if existing:
+            existing.check_out_time = payload.check_out_time
+            existing.duration_minutes = payload.duration_minutes
+            await existing.save()
+            doc = existing
+        else:
+            doc = GymCheckInDocument(
+                check_in_id=payload.check_in_id,
+                user_id=payload.user_id,
+                gym_name=payload.gym_name,
+                check_in_time=payload.check_in_time,
+                check_out_time=payload.check_out_time,
+                duration_minutes=payload.duration_minutes,
+                date=payload.date,
+            )
+            await doc.insert()
+
+        return {"success": True, "data": {"check_in_id": doc.check_in_id}}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── 7. Weekly Schedule Endpoints ─────────────────────────────────────────────
+
+class SaveScheduleRequest(BaseModel):
+    user_id: str = "usr_dev_1"
+    schedule: List[DayScheduleData]
+
+
+@router.get("/schedule")
+async def get_weekly_schedule(user_id: str = Query("usr_dev_1")):
+    """
+    Retrieves the user's active Monday to Sunday routine schedule.
+    """
+    try:
+        doc = await WeeklyScheduleDocument.find_one(
+            WeeklyScheduleDocument.user_id == user_id
+        )
+        if not doc:
+            return {"success": True, "data": None}
+        return {"success": True, "data": doc.schedule}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/schedule")
+async def update_weekly_schedule(payload: SaveScheduleRequest):
+    """
+    Persists the user's updated 7-day routine schedule.
+    """
+    try:
+        doc = await WeeklyScheduleDocument.find_one(
+            WeeklyScheduleDocument.user_id == payload.user_id
+        )
+        if doc:
+            doc.schedule = payload.schedule
+            doc.updated_at = datetime.utcnow()
+            await doc.save()
+        else:
+            doc = WeeklyScheduleDocument(
+                user_id=payload.user_id,
+                schedule=payload.schedule,
+            )
+            await doc.insert()
+
+        return {"success": True, "data": doc.schedule}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

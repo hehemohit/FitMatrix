@@ -11,6 +11,7 @@ import {
 import Svg, { Rect, Line, Circle } from 'react-native-svg';
 import { useSafeTopInset } from '../../hooks/useSafeTopInset';
 import { useWorkoutHistoryStore } from '../../store/useWorkoutHistoryStore';
+import { useTrainerStore } from '../../store/useTrainerStore';
 import { useDashboardTabStore } from '../../store/useDashboardTabStore';
 import { AnatomicalSilhouette, MuscleHeatMap } from '../../components/workout/AnatomicalSilhouette';
 
@@ -26,6 +27,7 @@ export const WorkoutStatsScreen: React.FC<WorkoutStatsScreenProps> = ({
 }) => {
   const topInset = useSafeTopInset(10);
   const { workouts, getStreakWeeks } = useWorkoutHistoryStore();
+  const { weighInRecords } = useTrainerStore();
   const { setActiveDashboard } = useDashboardTabStore();
 
   const [activeSegment, setActiveSegment] = useState<'balance' | 'fatigue' | 'strength'>('balance');
@@ -36,17 +38,65 @@ export const WorkoutStatsScreen: React.FC<WorkoutStatsScreenProps> = ({
   const totalWorkouts = workouts.length > 0 ? workouts.length : 35;
   const streak = getStreakWeeks() > 0 ? getStreakWeeks() : 12;
 
-  // Mock heatmap matrix matching screenshot
+  // Workouts this month
+  const workoutsThisMonth = React.useMemo(() => {
+    const now = new Date();
+    const count = workouts.filter(w => {
+      if (!w.completedAt) return false;
+      const d = new Date(w.completedAt);
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    }).length;
+    return workouts.length > 0 ? count : 5;
+  }, [workouts]);
+
+  // Weight 30d delta
+  const weight30dDelta = React.useMemo(() => {
+    if (weighInRecords && weighInRecords.length >= 2) {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const thirtyStr = thirtyDaysAgo.toISOString().split('T')[0];
+      const recent = weighInRecords.filter(r => r.date >= thirtyStr);
+      if (recent.length >= 2) {
+        const delta = recent[recent.length - 1].weightKg - recent[0].weightKg;
+        return `${delta > 0 ? '+' : ''}${delta.toFixed(1)} kg`;
+      }
+    }
+    return '-1.0 kg';
+  }, [weighInRecords]);
+
+  // Activity Heatmap (Dynamic 24-week × 7-day matrix)
   const heatmapData = React.useMemo(() => {
     const grid: number[][] = [];
+    const now = new Date();
+
+    const workoutDateSet = new Set<string>();
+    workouts.forEach(w => {
+      if (w.completedAt) {
+        workoutDateSet.add(new Date(w.completedAt).toISOString().split('T')[0]);
+      }
+    });
+
     for (let r = 0; r < HEATMAP_DAYS; r++) {
       const row: number[] = [];
       for (let c = 0; c < HEATMAP_WEEKS; c++) {
-        // High density in last 8 columns (matching screenshot)
-        if (c > 14 && (r === 0 || r === 2 || r === 4)) {
+        const weekOffset = (HEATMAP_WEEKS - 1) - c;
+        const cellDate = new Date(now);
+        const currentDay = now.getDay();
+        const currentMonDiff = (currentDay === 0 ? -6 : 1) - currentDay;
+        cellDate.setDate(now.getDate() + currentMonDiff - weekOffset * 7 + r);
+        const cellDateStr = cellDate.toISOString().split('T')[0];
+
+        if (workoutDateSet.has(cellDateStr)) {
           row.push(1);
-        } else if (c > 17 && r === 1) {
-          row.push(1);
+        } else if (workouts.length === 0) {
+          // Visual baseline if no workouts recorded yet
+          if (c > 14 && (r === 0 || r === 2 || r === 4)) {
+            row.push(1);
+          } else if (c > 17 && r === 1) {
+            row.push(1);
+          } else {
+            row.push(0);
+          }
         } else {
           row.push(0);
         }
@@ -54,48 +104,74 @@ export const WorkoutStatsScreen: React.FC<WorkoutStatsScreenProps> = ({
       grid.push(row);
     }
     return grid;
-  }, []);
+  }, [workouts]);
 
-  // Muscle Heatmap based on workouts or reference distribution
+  // Muscle Heatmap dynamically calculated from workout history & selected timeFilter
   const currentHeatMap: MuscleHeatMap = React.useMemo(() => {
-    if (activeSegment === 'fatigue') {
-      const fatigueMap: MuscleHeatMap = {
-        chest: 6,
+    const daysLimit =
+      timeFilter === 'Week' ? 7 : timeFilter === '30d' ? 30 : timeFilter === '90d' ? 90 : 365;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - daysLimit);
+
+    const filteredWorkouts = workouts.filter(w => {
+      if (!w.completedAt) return true;
+      return new Date(w.completedAt) >= cutoff;
+    });
+
+    const muscleSets: Record<string, number> = {};
+    filteredWorkouts.forEach(w => {
+      w.exercises?.forEach(ex => {
+        const muscle = (ex.target || ex.category || 'chest').toLowerCase().replace(/\s+/g, '-');
+        const setsCount = ex.sets?.filter(s => s.isCompleted).length || ex.sets?.length || 3;
+        muscleSets[muscle] = (muscleSets[muscle] || 0) + setsCount;
+      });
+    });
+
+    const hasRealSets = Object.keys(muscleSets).length > 0;
+    if (!hasRealSets) {
+      if (activeSegment === 'fatigue') {
+        return {
+          chest: 6,
+          deltoids: 8,
+          triceps: 9,
+          abs: 2,
+          quadriceps: 3,
+          calves: 1,
+        };
+      }
+      if (activeSegment === 'strength') {
+        return {
+          chest: 10,
+          deltoids: 8,
+          biceps: 6,
+          triceps: 7,
+          quadriceps: 9,
+          hamstring: 6,
+        };
+      }
+      return {
+        chest: 8,
         deltoids: 8,
-        triceps: 9,
-        abs: 2,
-        quadriceps: 3,
-        calves: 1,
+        abs: 7,
+        obliques: 6,
+        biceps: 7,
+        triceps: 5,
+        'upper-back': 8,
+        trapezius: 5,
+        forearm: 6,
+        quadriceps: 0,
+        calves: 0,
       };
-      return fatigueMap;
     }
-    if (activeSegment === 'strength') {
-      const strengthMap: MuscleHeatMap = {
-        chest: 10,
-        deltoids: 8,
-        biceps: 6,
-        triceps: 7,
-        quadriceps: 9,
-        hamstring: 6,
-      };
-      return strengthMap;
-    }
-    // Default: Muscle balance (Screenshot 4: chest, abs, deltoids, obliques, biceps, upper-back highlighted)
-    const balanceMap: MuscleHeatMap = {
-      chest: 8,
-      deltoids: 8,
-      abs: 7,
-      obliques: 6,
-      biceps: 7,
-      triceps: 5,
-      'upper-back': 8,
-      trapezius: 5,
-      forearm: 6,
-      quadriceps: 0,
-      calves: 0,
-    };
-    return balanceMap;
-  }, [activeSegment]);
+
+    const maxSets = Math.max(...Object.values(muscleSets), 1);
+    const result: MuscleHeatMap = {};
+    Object.entries(muscleSets).forEach(([m, count]) => {
+      const intensity = Math.min(10, Math.max(1, Math.round((count / maxSets) * 10)));
+      result[m] = intensity;
+    });
+    return result;
+  }, [workouts, activeSegment, timeFilter]);
 
   return (
     <View style={styles.container}>
@@ -154,7 +230,7 @@ export const WorkoutStatsScreen: React.FC<WorkoutStatsScreenProps> = ({
               <Text style={styles.metricIcon}>📅</Text>
               <Text style={styles.metricLabel}>This month</Text>
             </View>
-            <Text style={styles.metricValue}>5</Text>
+            <Text style={styles.metricValue}>{workoutsThisMonth}</Text>
           </View>
 
           {/* Card 3: Week streak */}
@@ -172,7 +248,7 @@ export const WorkoutStatsScreen: React.FC<WorkoutStatsScreenProps> = ({
               <Text style={styles.metricIcon}>⚖️</Text>
               <Text style={styles.metricLabel}>Weight 30d</Text>
             </View>
-            <Text style={[styles.metricValue, { color: '#22c55e' }]}>-1 kg</Text>
+            <Text style={[styles.metricValue, { color: '#22c55e' }]}>{weight30dDelta}</Text>
           </View>
         </View>
 

@@ -96,6 +96,11 @@ interface MetabolicTargets {
   target_fats_g: number;
 }
 
+export interface WeighInRecord {
+  date: string;
+  weightKg: number;
+}
+
 interface TrainerState {
   // ── Transient ──
   messages: ChatMessage[];
@@ -115,6 +120,7 @@ interface TrainerState {
   weighInStat: string;
   foodLogHistory: boolean[];
   foodLogStat: string;
+  weighInRecords: WeighInRecord[];
 
   // ── Persistent (MMKV) ──
   userProfile: UserProfile;
@@ -197,6 +203,7 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
   weighInStat: hydrate<string>('weigh_in_stat', '0/7'),
   foodLogHistory: hydrate<boolean[]>('food_log_history', Array(28).fill(false)),
   foodLogStat: hydrate<string>('food_log_stat', '0/7'),
+  weighInRecords: hydrate<WeighInRecord[]>('weigh_in_records', []),
 
   userProfile: hydrate<UserProfile>('user_profile', {}),
   dailyLog: hydrate<DailyLog>('daily_log', {}),
@@ -597,9 +604,19 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
     persist('weigh_in_history', currentWeighHistory);
     persist('weigh_in_stat', newWeighStat);
 
+    // 3. Record timestamped weigh-in into weighInRecords
+    const todayStr = new Date().toISOString().split('T')[0];
+    const prevRecords = get().weighInRecords || [];
+    const filteredRecords = prevRecords.filter(r => r.date !== todayStr);
+    const updatedRecords = [...filteredRecords, { date: todayStr, weightKg }].sort((a, b) =>
+      a.date.localeCompare(b.date)
+    );
+    persist('weigh_in_records', updatedRecords);
+
     set({
       weighInHistory: currentWeighHistory,
       weighInStat: newWeighStat,
+      weighInRecords: updatedRecords,
     });
 
     try {

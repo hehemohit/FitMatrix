@@ -49,8 +49,28 @@ interface ExerciseLibraryState {
   getExerciseById: (id: string) => ExerciseRecord | undefined;
 }
 
+import { createMMKV, type MMKV } from 'react-native-mmkv';
+
+const customExerciseStorage: MMKV = createMMKV({ id: 'fitmatrix-custom-exercises' });
+
+const loadCustomExercises = (): ExerciseRecord[] => {
+  try {
+    const raw = customExerciseStorage.getString('custom_exercises');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    console.warn('[useExerciseLibraryStore] Failed to load custom exercises', e);
+  }
+  return [];
+};
+
+const savedCustom = loadCustomExercises();
+const INITIAL_EXERCISES: ExerciseRecord[] = [...savedCustom, ...ALL_EXERCISES];
+
 export const useExerciseLibraryStore = create<ExerciseLibraryState>((set, get) => ({
-  exercises: ALL_EXERCISES,
+  exercises: INITIAL_EXERCISES,
   searchQuery: '',
   selectedCategory: 'All',
   selectedEquipment: 'All',
@@ -78,9 +98,16 @@ export const useExerciseLibraryStore = create<ExerciseLibraryState>((set, get) =
       ...ex,
       id: `custom_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
     };
-    set(state => ({
-      exercises: [newEx, ...state.exercises],
-    }));
+    set(state => {
+      const updated = [newEx, ...state.exercises];
+      try {
+        const customOnly = updated.filter(e => e.id.startsWith('custom_'));
+        customExerciseStorage.set('custom_exercises', JSON.stringify(customOnly));
+      } catch (err) {
+        console.warn('[useExerciseLibraryStore] Failed to persist custom exercises', err);
+      }
+      return { exercises: updated };
+    });
     return newEx;
   },
 

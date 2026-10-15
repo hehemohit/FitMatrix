@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -13,11 +13,13 @@ import { useWorkoutHistoryStore } from '../../store/useWorkoutHistoryStore';
 import { useTrainerStore } from '../../store/useTrainerStore';
 import { useWorkoutSessionStore } from '../../store/useWorkoutSessionStore';
 import { useDashboardTabStore } from '../../store/useDashboardTabStore';
+import { useWorkoutScheduleStore } from '../../store/useWorkoutScheduleStore';
 import { WorkoutWeekStrip } from '../../components/workout/WorkoutWeekStrip';
 import { TodayWorkoutHeroCard } from '../../components/workout/TodayWorkoutHeroCard';
 import { GymCheckInCard } from '../../components/workout/GymCheckInCard';
 import { BodyWeightTrendCard } from '../../components/workout/BodyWeightTrendCard';
 import { WorkoutStreakSummaryCard } from '../../components/workout/WorkoutStreakSummaryCard';
+import { WeighInModal } from '../../components/macrofactor/WeighInModal';
 
 interface WorkoutHomeScreenProps {
   onStartTodayWorkout: () => void;
@@ -32,9 +34,11 @@ export const WorkoutHomeScreen: React.FC<WorkoutHomeScreenProps> = ({
 }) => {
   const topInset = useSafeTopInset(10);
   const { workouts, getStreakWeeks } = useWorkoutHistoryStore();
-  const { userProfile, workoutPlan } = useTrainerStore();
-  const { isActive, minimizeWorkout } = useWorkoutSessionStore();
+  const { userProfile, weighInRecords, weighIn } = useTrainerStore();
+  const { schedule, getPlannedWorkoutDaysCount } = useWorkoutScheduleStore();
   const { setActiveDashboard } = useDashboardTabStore();
+
+  const [weighInModalVisible, setWeighInModalVisible] = useState(false);
 
   const today = new Date();
   const dateFormatted = today.toLocaleDateString('en-US', {
@@ -43,12 +47,42 @@ export const WorkoutHomeScreen: React.FC<WorkoutHomeScreenProps> = ({
     month: 'long',
   });
 
+  // Calculate dynamic streak and total workouts
   const streak = getStreakWeeks();
-  const totalWorkouts = workouts.length > 0 ? workouts.length : 35; // Default reference baseline
+  const totalWorkouts = workouts.length > 0 ? workouts.length : 35;
 
-  const todayRoutineName = workoutPlan?.days?.[0]?.targetMuscleGroups?.[0]
-    ? `${workoutPlan.days[0].targetMuscleGroups[0]} Day`
-    : 'Push Day · Scheduled';
+  // Calculate completed workouts this week (Monday to Sunday)
+  const currentDay = today.getDay(); // 0 is Sunday, 1 is Monday...
+  const diffToMonday = (currentDay === 0 ? -6 : 1) - currentDay;
+  const startOfWeek = new Date(today);
+  startOfWeek.setDate(today.getDate() + diffToMonday);
+  startOfWeek.setHours(0, 0, 0, 0);
+
+  const completedThisWeek = workouts.filter(w => {
+    if (!w.completedAt) return false;
+    const d = new Date(w.completedAt);
+    return d >= startOfWeek && d <= today;
+  }).length;
+
+  const plannedThisWeek = getPlannedWorkoutDaysCount() || 3;
+
+  // Determine today's routine from user's live schedule
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const todayDayName = dayNames[today.getDay()];
+  const todayDaySchedule = schedule.find(s => s.dayName.toLowerCase() === todayDayName.toLowerCase());
+
+  let todayRoutineName = 'Push Day · Scheduled';
+  if (todayDaySchedule) {
+    if (todayDaySchedule.isRest) {
+      todayRoutineName = 'Rest Day · Active Recovery';
+    } else if (todayDaySchedule.routines.length > 0) {
+      todayRoutineName = `${todayDaySchedule.routines[0].name} · Scheduled`;
+    }
+  }
+
+  // Weight metrics
+  const currentWeight = userProfile.weight_kg || 78.4;
+  const goalWeight = userProfile.weight_kg ? Number((userProfile.weight_kg - 1.4).toFixed(1)) : 77.0;
 
   return (
     <View style={styles.container}>
@@ -103,21 +137,33 @@ export const WorkoutHomeScreen: React.FC<WorkoutHomeScreenProps> = ({
           onStartPress={onStartTodayWorkout}
         />
 
-        {/* Gym Check-in Card */}
+        {/* Gym Check-in Card (Live MMKV state) */}
         <GymCheckInCard onPress={onCheckIn} />
 
-        {/* Body Weight Trend Card */}
+        {/* Body Weight Trend Card (Dynamic SVG curve & weigh-in integration) */}
         <BodyWeightTrendCard
-          currentWeight={userProfile.weight_kg || 78.4}
-          goalWeight={userProfile.weight_kg ? Number((userProfile.weight_kg - 1.4).toFixed(1)) : 77.0}
+          currentWeight={currentWeight}
+          goalWeight={goalWeight}
+          weighInRecords={weighInRecords}
+          onLogPress={() => setWeighInModalVisible(true)}
         />
 
-        {/* Streak Summary Card */}
+        {/* Streak Summary Card (Real calculations) */}
         <WorkoutStreakSummaryCard
           streakWeeks={streak > 0 ? streak : 12}
+          completedThisWeek={completedThisWeek}
+          plannedThisWeek={plannedThisWeek}
           totalWorkouts={totalWorkouts}
         />
       </ScrollView>
+
+      {/* Dynamic Weigh-In Modal */}
+      <WeighInModal
+        visible={weighInModalVisible}
+        onClose={() => setWeighInModalVisible(false)}
+        onSave={weighIn}
+        initialWeight={userProfile.weight_kg}
+      />
     </View>
   );
 };
