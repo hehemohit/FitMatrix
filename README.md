@@ -26,12 +26,19 @@
   - [4.4 Plan Studio](#44-plan-studio)
   - [4.5 Multi-Agent Coaching Hub](#45-multi-agent-coaching-hub)
   - [4.6 Profile & Anthropometric Calibration](#46-profile--anthropometric-calibration)
+  - [4.7 Dual-Universe System Architecture](#47-dual-universe-system-architecture)
+  - [4.8 Live Workout Session Engine](#48-live-workout-session-engine)
+  - [4.9 Biomechanical Workout Analytics & Muscular Silhouette](#49-biomechanical-workout-analytics--muscular-silhouette)
+  - [4.10 Routine Studio & Exercise Library](#410-routine-studio--exercise-library)
 - [5. Mathematical & Algorithmic Formulations](#5-mathematical--algorithmic-formulations)
   - [5.1 Biometric Readiness & Fatigue Index](#51-biometric-readiness--fatigue-index)
   - [5.2 Basal Metabolic Rate (Mifflin-St Jeor)](#52-basal-metabolic-rate-mifflin-st-jeor)
   - [5.3 Dynamic Rolling TDEE & Exponential Smoothing](#53-dynamic-rolling-tdee--exponential-smoothing)
   - [5.4 Dynamic ETA Trajectory (Wishnofsky Tissue Deficit)](#54-dynamic-eta-trajectory-wishnofsky-tissue-deficit)
   - [5.5 Day-to-Day Isocaloric Carbohydrate Cycling](#55-day-to-day-isocaloric-carbohydrate-cycling)
+  - [5.6 Estimated 1-Rep Max (Brzycki Formulation)](#56-estimated-1-rep-max-brzycki-formulation)
+  - [5.7 Neuromuscular Fatigue Recovery Kinetics](#57-neuromuscular-fatigue-recovery-kinetics)
+  - [5.8 Non-Parametric Quartile Activity Heatmap Formulation](#58-non-parametric-quartile-activity-heatmap-formulation)
 - [6. Multi-Agent Orchestration Engine (LangGraph DAG)](#6-multi-agent-orchestration-engine-langgraph-dag)
 - [7. Hardware Sensor Pipeline (Android Health Connect)](#7-hardware-sensor-pipeline-android-health-connect)
 - [8. Technology Stack & Technical Justifications](#8-technology-stack--technical-justifications)
@@ -85,7 +92,7 @@ For the exhaustive literature review, mathematical derivations, competitive benc
 📄 **[Read Full Academic & Industry Research Document (RESEARCH.md)](RESEARCH.md)**
 
 ### Key Research Highlights Covered in `RESEARCH.md`:
-- **Market Research & Gap Analysis:** 12-dimensional competitive teardown against MyFitnessPal, MacroFactor, Whoop, RP Diet, and Fitbod.
+- **Market Research & Gap Analysis:** 12-dimensional competitive teardown against MyFitnessPal, Adaptive Metabolic Trackers, Whoop, RP Diet, and Fitbod.
 - **Product Philosophy:** Adherence Neutrality, the BJ Fogg Behavior Model ($B = \text{MAP}$), and cognitive friction minimization under Hick-Hyman and Fitts's Laws.
 - **Metabolic Physiology:** Comparative analysis of BMR equations (Mifflin-St Jeor vs. Harris-Benedict vs. Katch-McArdle), adaptive thermogenesis mechanisms (NEAT depression, leptin down-regulation), and exponential smoothing formulas for true TDEE.
 - **Biomechanical Periodization:** Hans Selye's General Adaptation Syndrome (GAS), Banister's Impulse-Response Fitness-Fatigue Model ($P(t) = f(t) - g(t)$), and RPE/RIR autoregulation.
@@ -175,7 +182,7 @@ FitMatrix is engineered across a clean, decoupled 3-tier distributed architectur
 - **Frequent Foods Shelf (`FrequentFoodsShelf.tsx`):** Horizontal quick-access carousel allowing 1-tap meal logging for the user's top recurring items without opening complex modal workflows.
 
 ### 4.2 Strategy Command Center (`StrategyScreen.tsx`)
-- **MacroFactor-Inspired Metabolic Architecture:** Completely removes rigid caloric budgeting in favor of dynamic expenditure tracking.
+- **Adaptive Adherence-Neutral Metabolic Architecture:** Completely removes rigid caloric budgeting in favor of dynamic expenditure tracking.
 - **Dynamic Goal Trajectory (`GoalEtaCard.tsx`):** Real-time interactive calculation of weekly rate (% of bodyweight), target deficit/surplus, total weeks to goal, and calendar completion date using Wishnofsky's tissue energy model.
 - **Rolling Expenditure Chart:** Visualizes true metabolic expenditure over a rolling 14-day window, tracking physiological metabolic adaptation.
 - **Coaching Mode Selector:**
@@ -214,6 +221,45 @@ FitMatrix is engineered across a clean, decoupled 3-tier distributed architectur
 - **Deterministic Biometric Profile:** Captures weight (kg), height (cm), age, biological sex, activity multiplier, and fitness goals.
 - **Dietary Constraint Chips:** Supports Omnivore, Pure Vegetarian, Vegan, Keto, and Jain preferences with immediate agent prompt adaptation.
 - **Hardware Integration Status:** Live indicator displaying Android Health Connect connectivity status and permission grants.
+
+### 4.7 Dual-Universe System Architecture (`WorkoutDashboardScreen.tsx`)
+- **Universe Switcher:** Seamless header button enabling instant transitions between the **Nutrition Universe** and the **Workout Universe**.
+- **Dynamic Contextual Navigation Bars:**
+  - *Nutrition Navigation:* `[ Home ] [ Strategy ] [ Food Log ] [ Plans ] [ AI Coach ]`
+  - *Workout Navigation:* `[ Home ] [ Plan ] [ Start (Quick Action) ] [ Stats ] [ Exercises ]`
+- **Cognitive Decoupling:** Eliminates UI clutter by isolating dietary energy intake from biomechanical athletic execution while maintaining unified underlying biometrics.
+
+### 4.8 Live Workout Session Engine (`ActiveWorkoutScreen.tsx` & `useWorkoutSessionStore.ts`)
+- **Background-Persistent Chronometer:** Resilient workout timer maintained via epoch timestamp subtraction, continuing accurately even when minimized or backgrounded.
+- **Granular Set Logging:** Real-time steppers for weight and repetitions, completion toggling, and specialized set classification:
+  - `Normal` (standard progressive working set)
+  - `Warmup (W)` (acclimation volume excluded from fatigue/volume load analytics)
+  - `Drop (D)` (drop-set intensity technique)
+  - `Failure (F)` (0 RIR absolute muscular exhaustion)
+- **Autoregulated Effort Logging:** Per-set RPE (6.0–10.0) and RIR (0–4+) inputs.
+- **Rest Timer:** Dynamic interval countdown with quick presets (+30s, +60s, +120s) and completion alerts.
+- **Post-Workout Summary Modal:** Comprehensive recap displaying duration, total volume load, total sets, reps, and target muscle distribution.
+
+### 4.9 Biomechanical Workout Analytics & Muscular Silhouette (`WorkoutStatsScreen.tsx`)
+- **52-Week Rolling Activity Heatmap:**
+  - Full 364-day GitHub-style consistency grid with horizontal scrolling and auto-scroll to the current date.
+  - Pinned `Mon`, `Wed`, `Fri` day labels and dynamically anchored month headers.
+  - Quartile-based dynamic shading ($P_{25}, P_{50}, P_{75}$) adapting to personal workout volume distributions.
+  - Dual metric toggling: `⏱ Time` (minutes) vs `🏋️ Volume` (weight load) with synchronized scale legends.
+  - Multi-workout daily aggregation and interactive tap-to-inspect card enabling drill-down into detailed set logs.
+- **Anatomical Silhouette with Tri-Mode Muscular Analytics (`AnatomicalSilhouette.tsx`):**
+  - High-fidelity dual-view (front and back) vector anatomy with canonical target normalization (`pectorals` $\rightarrow$ `chest`, `delts` $\rightarrow$ `deltoids`).
+  - *Muscle Balance Mode:* Proportional volume heatmap (deep green to neon lime), week pagination (`‹ Week of ... ›`), all sets vs. 🔥 hard sets ($\le 2$ RIR) toggle, ranked volume bar chart, and unworked muscle chips.
+  - *Fatigue Mode:* Evaluates acute stimulus recency: **Red** ($\le 1$ day, fatigued), **Amber** (2–3 days, recovering), and **Green** ($>3$ days, ready for loading).
+  - *Strength Mode:* Retained strength decay curve combined with all-time Estimated 1-Rep Max (1RM) progression per exercise.
+- **Effort Analysis Card (`EffortAnalysisCard.tsx`):** Rolling proximity to failure analysis across 30d/90d/1Y/All horizons with RIR distribution histograms.
+- **Exercise Progress Analytics (`ExerciseProgressCard.tsx`):** Searchable exercise dropdown, Catmull-Rom SVG curves for Top Set, Est. 1RM, Max Reps, and Effort.
+- **Bodyweight Trend & Morning Weigh-In Hub:** Quick morning weigh-in stepper (`WeighInLogModal.tsx`), target goal adjuster (`WeightGoalModal.tsx`), and full chronological weigh-in ledger (`AllWeighInsModal.tsx`).
+- **Weekly Planned Volume Card (`WeeklyPlanVolumeCard.tsx`):** Expected weekly volume distribution derived from active routine templates.
+
+### 4.10 Routine Studio & Exercise Library (`WorkoutRoutinePlanScreen.tsx` & `ExerciseLibraryScreen.tsx`)
+- **Routine Studio:** Interactive template creator and schedule manager for Push/Pull/Legs (PPL), Upper/Lower, and Full Body splits.
+- **Comprehensive Exercise Encyclopedia:** Rich library with anatomical target classifications, secondary muscle recruitment tags, equipment filters, search, and historical session logs.
 
 ---
 
@@ -262,6 +308,24 @@ Implemented in `generate_schedule()`:
 $$\text{Training Day Bonus} = +250\text{ kcal} \quad (+62.5\text{g Carbohydrates})$$
 $$\text{Rest Day Deduction} = \frac{N_{\text{training}} \times 250}{N_{\text{rest}}}\text{ kcal} \quad \left(-\frac{\text{Deduction}}{4}\text{g Carbohydrates}\right)$$
 $$\sum_{d=1}^{7} \text{Calories}_d = 7 \times \text{Baseline Target Calories}$$
+
+### 5.6 Estimated 1-Rep Max (Brzycki Formulation)
+Implemented in `calculate1RM()`:
+
+$$\text{1RM} = \text{Weight} \times \frac{36}{37 - \text{Reps}}$$
+
+### 5.7 Neuromuscular Fatigue Recovery Kinetics
+Evaluated across acute training recency $\Delta t = t_{\text{current}} - t_{\text{last\_trained}}$:
+
+$$\text{Recovery State} = \begin{cases} \text{Fatigued (Red, Intensity 9)}, & \Delta t \le 1 \text{ day} \\ \text{Recovering (Amber, Intensity 5)}, & 1 < \Delta t \le 3 \text{ days} \\ \text{Ready (Green, Intensity 1)}, & \Delta t > 3 \text{ days or unworked} \end{cases}$$
+
+### 5.8 Non-Parametric Quartile Activity Heatmap Formulation
+Daily multi-session consolidation and dynamic quartile thresholding:
+
+$$V_d = \sum_{w \in W_d} \text{Metric}(w), \quad \text{where Metric} \in \{\text{Duration (min)}, \text{Volume (lb)}\}$$
+$$\text{Sorted Active Values} = \text{sort}(\{V_d \mid V_d > 0\})$$
+$$t_1 = q(0.25), \quad t_2 = q(0.50), \quad t_3 = q(0.75)$$
+$$\text{Level}(V_d) = \begin{cases} 0, & V_d = 0 \\ 1, & 0 < V_d < t_1 \\ 2, & t_1 \le V_d < t_2 \\ 3, & t_2 \le V_d < t_3 \\ 4, & V_d \ge t_3 \end{cases}$$
 
 ---
 
@@ -531,15 +595,19 @@ This project satisfies the rigorous requirements of a **Final Year Engineering M
 
 ## 14. Engineering Changelog & Roadmap
 
-### Completed Milestones (Days 1–3)
+### Completed Milestones
 - [x] LangGraph Multi-Agent StateGraph with deterministic intent routing.
 - [x] Android Health Connect sensor pipeline (Steps, Sleep, Resting HR, Active Burn).
 - [x] Native Android permission delegate binding in `MainActivity.kt`.
 - [x] High-performance Zustand + MMKV v4 local persistence layer.
-- [x] MacroFactor-inspired Strategy Command Center with rolling TDEE and ETA trajectory.
+- [x] Adaptive Adherence-Neutral Strategy Command Center with rolling TDEE and ETA trajectory.
 - [x] Google Gemini 3.8 Flash multimodal food vision recognition.
 - [x] 4-Tier resilient barcode ingestion (Local DB + Open Food Facts fallback).
-- [x] 5-Screen bottom tab navigation with custom SVG gauges.
+- [x] Dual-Universe Navigation Architecture (Nutrition Universe vs. Workout Universe).
+- [x] Full Live Workout Session Tracker with background-persistent timer, set classification (`W`/`D`/`F`), and rest timers.
+- [x] Longitudinal 52-Week Activity Heatmap with multi-session aggregation, quartile shading, and day inspection.
+- [x] Anatomical Silhouette with Tri-Mode Analytics (Muscular Volume Balance, Fatigue Recency, Strength 1RM decay).
+- [x] Effort & Proximity to Failure Analysis (RIR histograms) and Catmull-Rom Exercise Progress curves.
 
 ### Future Research Directions
 - [ ] Heart Rate Variability (HRV rMSSD) spectral analysis integration via HealthKit/Health Connect.
