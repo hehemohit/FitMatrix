@@ -11,7 +11,7 @@ import { MealEntryModal } from '../components/MealEntryModal';
 import { WeighInModal } from '../components/macrofactor/WeighInModal';
 import { ActiveWorkoutScreen } from '../screens/workout/ActiveWorkoutScreen';
 import { WorkoutCompleteScreen } from '../screens/workout/WorkoutCompleteScreen';
-import { WorkoutDashboardScreen } from '../screens/workout/WorkoutDashboardScreen';
+import { WorkoutNavigator } from '../screens/workout/WorkoutNavigator';
 import { useTrainerStore } from '../store/useTrainerStore';
 import { useWorkoutSessionStore, WorkoutSummaryData } from '../store/useWorkoutSessionStore';
 import { useExerciseLibraryStore } from '../store/useExerciseLibraryStore';
@@ -62,33 +62,42 @@ export const AppNavigator: React.FC = () => {
 
   const screens = React.useMemo(
     () => [
-      activeDashboard === 'workout' ? (
-        <WorkoutDashboardScreen
-          key="workout-dashboard-screen"
-          onStartWorkout={(name, initialExercises) => {
-            startWorkout(name, initialExercises);
-          }}
-        />
-      ) : (
-        <DashboardScreen key="dashboard-screen" />
-      ),
+      <DashboardScreen key="dashboard-screen" />,
       <FoodLogScreen key="foodlog-screen" />,
       <StrategyScreen key="strategy-screen" />,
       <ProfileScreen key="profile-screen" />,
     ],
-    [activeDashboard, startWorkout]
+    []
   );
 
   const currentExercise = exercises[activeExerciseIndex];
 
   return (
     <View style={styles.container}>
-      {/* WhatsApp-Style Horizontal Gesture Pager */}
-      <SwipeableScreenPager
-        screens={screens}
-        currentIndex={activeTab}
-        onIndexChange={setActiveTab}
-      />
+      {/* Either Workout Universe (with its own dedicated 5-tab bar) or Nutrition Universe */}
+      {activeDashboard === 'workout' ? (
+        <WorkoutNavigator
+          onStartWorkout={(name, initialExercises) => {
+            startWorkout(name, initialExercises);
+          }}
+        />
+      ) : (
+        <>
+          {/* WhatsApp-Style Horizontal Gesture Pager */}
+          <SwipeableScreenPager
+            screens={screens}
+            currentIndex={activeTab}
+            onIndexChange={setActiveTab}
+          />
+
+          {/* Synchronized Custom Bottom Tab Bar for Nutrition */}
+          <CustomTabBar
+            currentIndex={activeTab}
+            onSelectIndex={setActiveTab}
+            onFabPress={() => setQuickActionVisible(true)}
+          />
+        </>
+      )}
 
       {/* Floating Minimized Workout Banner */}
       {isActive && isMinimized && (
@@ -107,13 +116,6 @@ export const AppNavigator: React.FC = () => {
           <Text style={styles.miniResumeText}>Resume ➔</Text>
         </TouchableOpacity>
       )}
-
-      {/* Synchronized Custom Bottom Tab Bar */}
-      <CustomTabBar
-        currentIndex={activeTab}
-        onSelectIndex={setActiveTab}
-        onFabPress={() => setQuickActionVisible(true)}
-      />
 
       {/* Floating Center (+) Action Sheet */}
       <QuickActionModal
@@ -137,21 +139,6 @@ export const AppNavigator: React.FC = () => {
         initialWeight={userProfile.weight_kg}
       />
 
-      {/* Workout Dashboard Modal */}
-      <Modal
-        visible={workoutDashboardVisible}
-        animationType="slide"
-        presentationStyle="fullScreen"
-        onRequestClose={() => setWorkoutDashboardVisible(false)}
-      >
-        <WorkoutDashboardScreen
-          onClose={() => setWorkoutDashboardVisible(false)}
-          onStartWorkout={(name, initialExercises) => {
-            setWorkoutDashboardVisible(false);
-            startWorkout(name, initialExercises);
-          }}
-        />
-      </Modal>
 
       {/* Full-Screen Active Workout Modal */}
       <Modal
@@ -190,14 +177,25 @@ const styles = StyleSheet.create({
     backgroundColor: colors.appDark,
   },
   minimizedBanner: {
+    position: 'absolute',
+    bottom: 78,
+    left: 12,
+    right: 12,
+    borderRadius: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#1b2a42',
-    borderTopWidth: 1,
-    borderTopColor: '#4b88eb66',
+    backgroundColor: '#161922',
+    borderWidth: 1,
+    borderColor: '#f59e0b',
     paddingHorizontal: 16,
     paddingVertical: 10,
+    elevation: 25,
+    zIndex: 999,
+    shadowColor: '#f59e0b',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
   },
   miniLeft: {
     flexDirection: 'row',

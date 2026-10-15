@@ -44,6 +44,7 @@ interface ExerciseLibraryState {
   setSelectedEquipment: (equipment: string) => void;
   setSelectedTarget: (target: string | null) => void;
   toggleFavorite: (id: string) => void;
+  addCustomExercise: (ex: Omit<ExerciseRecord, 'id'>) => ExerciseRecord;
   getFilteredExercises: () => ExerciseRecord[];
   getExerciseById: (id: string) => ExerciseRecord | undefined;
 }
@@ -70,6 +71,17 @@ export const useExerciseLibraryStore = create<ExerciseLibraryState>((set, get) =
           : [...state.favoriteIds, id],
       };
     });
+  },
+
+  addCustomExercise: (ex: Omit<ExerciseRecord, 'id'>) => {
+    const newEx: ExerciseRecord = {
+      ...ex,
+      id: `custom_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+    };
+    set(state => ({
+      exercises: [newEx, ...state.exercises],
+    }));
+    return newEx;
   },
 
   getExerciseById: (id: string) => {
