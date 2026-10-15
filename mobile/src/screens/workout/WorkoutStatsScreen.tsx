@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -29,7 +29,7 @@ interface WorkoutStatsScreenProps {
   onOpenHistory?: () => void;
 }
 
-const HEATMAP_WEEKS = 24; // 24 columns
+const HEATMAP_WEEKS = 52; // 52 columns (last 12 months)
 const HEATMAP_DAYS = 7; // 7 rows (Mon-Sun)
 
 const MUSCLE_DISPLAY_NAMES: Record<string, string> = {
@@ -108,9 +108,6 @@ export const WorkoutStatsScreen: React.FC<WorkoutStatsScreenProps> = ({
   const [selectedMuscle, setSelectedMuscle] = useState<string | null>(null);
   const [musclesExpanded, setMusclesExpanded] = useState<boolean>(false);
 
-  // Heatmap state
-  const [heatmapMetric, setHeatmapMetric] = useState<'time' | 'vol'>('time');
-
   // Dynamic metrics: top 4 tiles
   const totalWorkouts = workouts.length;
   const streak = getStreakWeeks();
@@ -147,69 +144,129 @@ export const WorkoutStatsScreen: React.FC<WorkoutStatsScreenProps> = ({
     }
   };
 
-  // Activity Heatmap: rolling 24 weeks with dynamic month labels and cell intensities
-  const { heatmapGrid, monthLabels, dateToWorkoutMap } = useMemo(() => {
-    const dateMap = new Map<string, CompletedWorkoutRecord>();
+  // Heatmap state
+  const heatmapScrollRef = useRef<any>(null);
+  const [heatmapMetric, setHeatmapMetric] = useState<'time' | 'vol'>('time');
+  const [selectedHeatmapDay, setSelectedHeatmapDay] = useState<{
+    date: string;
+    count: number;
+    totalMin: number;
+    totalVol: number;
+    workouts: CompletedWorkoutRecord[];
+  } | null>(null);
+
+  // Auto-scroll heatmap to the end (today) on mount
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      heatmapScrollRef.current?.scrollToEnd({ animated: false });
+    }, 200);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Activity Heatmap: rolling 52 weeks (last 12 months) with quartile shading & local dates
+  const { heatmapColumns } = useMemo(() => {
+    // 1. Multi-workout aggregation by local date
+    const agg: Record<string, {
+      count: number;
+      totalMin: number;
+      totalVol: number;
+      workouts: CompletedWorkoutRecord[];
+    }> = {};
+
     workouts.forEach(w => {
-      if (w.completedAt) {
-        const iso = new Date(w.completedAt).toISOString().split('T')[0];
-        if (!dateMap.has(iso)) {
-          dateMap.set(iso, w);
-        }
+      if (!w.completedAt) return;
+      const d = new Date(w.completedAt);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      if (!agg[key]) {
+        agg[key] = { count: 0, totalMin: 0, totalVol: 0, workouts: [] };
       }
+      agg[key].count += 1;
+      agg[key].totalMin += Math.max(0, Math.round((w.durationSeconds || 0) / 60));
+      agg[key].totalVol += Math.max(0, w.totalVolumeLb || 0);
+      agg[key].workouts.push(w);
     });
 
+    // 2. Active values for percentile-based shading
+    const activeValues = Object.values(agg)
+      .map(a => (heatmapMetric === 'vol' ? a.totalVol : a.totalMin))
+      .filter(v => v > 0)
+      .sort((a, b) => a - b);
+
+    const getLevel = (entry?: { totalMin: number; totalVol: number }) => {
+      if (!entry) return 0;
+      const val = heatmapMetric === 'vol' ? entry.totalVol : entry.totalMin;
+      if (val <= 0) return 0;
+      if (activeValues.length === 0) return 1;
+
+      const q = (p: number) => activeValues[Math.min(activeValues.length - 1, Math.floor(p * activeValues.length))];
+      const t1 = q(0.25);
+      const t2 = q(0.5);
+      const t3 = q(0.75);
+
+      if (val >= t3) return 4;
+      if (val >= t2) return 3;
+      if (val >= t1) return 2;
+      return 1;
+    };
+
+    // 3. 52-week calendar grid: Monday of 51 weeks ago -> this week
     const now = new Date();
-    const grid: { date: string; level: number; workout?: CompletedWorkoutRecord }[][] = [];
-    const monthsFound: { label: string; colIdx: number }[] = [];
+    const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const day = now.getDay();
+    const diffToMon = day === 0 ? -6 : 1 - day;
+    const currentWeekMon = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMon);
+    const startMon = new Date(currentWeekMon.getFullYear(), currentWeekMon.getMonth(), currentWeekMon.getDate() - 51 * 7);
+
+    const cols: {
+      colIdx: number;
+      monthLabel?: string;
+      days: {
+        date: string;
+        isToday: boolean;
+        isFuture: boolean;
+        level: number;
+        entry?: { count: number; totalMin: number; totalVol: number; workouts: CompletedWorkoutRecord[] };
+      }[];
+    }[] = [];
+
     let lastMonth = -1;
 
-    for (let r = 0; r < HEATMAP_DAYS; r++) {
-      grid.push([]);
-    }
-
-    for (let c = 0; c < HEATMAP_WEEKS; c++) {
-      const weekOffsetCol = (HEATMAP_WEEKS - 1) - c;
-      for (let r = 0; r < HEATMAP_DAYS; r++) {
-        const cellDate = new Date(now);
-        const currentDay = now.getDay();
-        const currentMonDiff = (currentDay === 0 ? -6 : 1) - currentDay;
-        cellDate.setDate(now.getDate() + currentMonDiff - weekOffsetCol * 7 + r);
-        const cellDateStr = cellDate.toISOString().split('T')[0];
-
-        // Track month label at row 0
-        if (r === 0) {
-          const m = cellDate.getMonth();
-          if (m !== lastMonth && c < HEATMAP_WEEKS - 2) {
-            lastMonth = m;
-            const monthName = cellDate.toLocaleDateString('en-US', { month: 'short' });
-            monthsFound.push({ label: monthName, colIdx: c });
-          }
-        }
-
-        const w = dateMap.get(cellDateStr);
-        let level = 0;
-        if (w) {
-          if (heatmapMetric === 'time') {
-            const mins = (w.durationSeconds || 0) / 60;
-            if (mins > 60) level = 4;
-            else if (mins > 40) level = 3;
-            else if (mins > 20) level = 2;
-            else level = 1;
-          } else {
-            const vol = w.totalVolumeLb || 0;
-            if (vol > 15000) level = 4;
-            else if (vol > 8000) level = 3;
-            else if (vol > 3000) level = 2;
-            else level = 1;
-          }
-        }
-
-        grid[r].push({ date: cellDateStr, level, workout: w });
+    for (let wk = 0; wk < HEATMAP_WEEKS; wk++) {
+      const colMon = new Date(startMon.getFullYear(), startMon.getMonth(), startMon.getDate() + wk * 7);
+      const m = colMon.getMonth();
+      let monthLabel: string | undefined = undefined;
+      // Show month label when month changes and within first week of month
+      if (m !== lastMonth && colMon.getDate() <= 7 && wk < HEATMAP_WEEKS - 1) {
+        lastMonth = m;
+        monthLabel = colMon.toLocaleDateString('en-US', { month: 'short' });
       }
+
+      const days = [];
+      for (let r = 0; r < HEATMAP_DAYS; r++) {
+        const cellDate = new Date(colMon.getFullYear(), colMon.getMonth(), colMon.getDate() + r);
+        const cellKey = `${cellDate.getFullYear()}-${String(cellDate.getMonth() + 1).padStart(2, '0')}-${String(cellDate.getDate()).padStart(2, '0')}`;
+        const entry = agg[cellKey];
+        const isToday = cellKey === todayKey;
+        const isFuture = cellDate.getTime() > now.getTime() && !isToday;
+        const level = isFuture ? 0 : getLevel(entry);
+
+        days.push({
+          date: cellKey,
+          isToday,
+          isFuture,
+          level,
+          entry,
+        });
+      }
+
+      cols.push({
+        colIdx: wk,
+        monthLabel,
+        days,
+      });
     }
 
-    return { heatmapGrid: grid, monthLabels: monthsFound, dateToWorkoutMap: dateMap };
+    return { heatmapColumns: cols, aggByDate: agg };
   }, [workouts, heatmapMetric]);
 
   // Selected week start date for Week pagination
@@ -461,71 +518,195 @@ export const WorkoutStatsScreen: React.FC<WorkoutStatsScreenProps> = ({
         {/* 12 Months Activity Heatmap Card */}
         <View style={styles.heatmapCard}>
           <View style={styles.heatmapHeaderRow}>
-            <Text style={styles.heatmapTitle}>Activity — last 12 months</Text>
-            {/* Metric Switcher */}
-            <TouchableOpacity
-              style={styles.metricToggleBtn}
-              onPress={() => setHeatmapMetric(m => (m === 'time' ? 'vol' : 'time'))}
-              activeOpacity={0.7}
+            <View>
+              <Text style={styles.heatmapTitle}>Activity</Text>
+              <Text style={styles.heatmapSubtitle}>Last 12 months · 52 weeks</Text>
+            </View>
+            {/* Metric Switcher Segmented Control */}
+            <View style={styles.heatmapSegmentedControl}>
+              <TouchableOpacity
+                style={[
+                  styles.heatmapSegmentBtn,
+                  heatmapMetric === 'time' && styles.heatmapSegmentBtnActive,
+                ]}
+                onPress={() => setHeatmapMetric('time')}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.heatmapSegmentText,
+                    heatmapMetric === 'time' && styles.heatmapSegmentTextActive,
+                  ]}
+                >
+                  ⏱ Time
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.heatmapSegmentBtn,
+                  heatmapMetric === 'vol' && styles.heatmapSegmentBtnActive,
+                ]}
+                onPress={() => setHeatmapMetric('vol')}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.heatmapSegmentText,
+                    heatmapMetric === 'vol' && styles.heatmapSegmentTextActive,
+                  ]}
+                >
+                  🏋️ Volume
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Grid Layout: Fixed Day Labels on left + Horizontal Scrollable 52-week Columns */}
+          <View style={styles.heatmapBodyRow}>
+            {/* Sticky Day Labels on Left: Mon, Wed, Fri */}
+            <View style={styles.heatmapStickyDaysCol}>
+              <View style={styles.heatmapMonthSpacer} />
+              <View style={styles.dayLabelItem}><Text style={styles.dayLabelText}>Mon</Text></View>
+              <View style={styles.dayLabelItemEmpty} />
+              <View style={styles.dayLabelItem}><Text style={styles.dayLabelText}>Wed</Text></View>
+              <View style={styles.dayLabelItemEmpty} />
+              <View style={styles.dayLabelItem}><Text style={styles.dayLabelText}>Fri</Text></View>
+              <View style={styles.dayLabelItemEmpty} />
+              <View style={styles.dayLabelItemEmpty} />
+            </View>
+
+            {/* Scrollable Heatmap Weeks */}
+            <ScrollView
+              ref={heatmapScrollRef}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.heatmapScrollContent}
+              onContentSizeChange={() => {
+                heatmapScrollRef.current?.scrollToEnd({ animated: false });
+              }}
             >
-              <Text style={styles.metricToggleText}>
-                {heatmapMetric === 'time' ? '⏱ by time' : '🏋️ by volume'}
-              </Text>
-            </TouchableOpacity>
-          </View>
+              <View>
+                {/* Month Labels Row */}
+                <View style={styles.monthHeaderRow}>
+                  {heatmapColumns.map((col, idx) => (
+                    <View key={`m-${idx}`} style={styles.monthColCell}>
+                      {col.monthLabel ? (
+                        <Text style={styles.monthColLabel}>{col.monthLabel}</Text>
+                      ) : null}
+                    </View>
+                  ))}
+                </View>
 
-          {/* Dynamic Month Labels */}
-          <View style={styles.monthLabelsRow}>
-            {monthLabels.map((m, idx) => (
-              <Text key={`ml-${idx}`} style={styles.monthLabel}>
-                {m.label}
-              </Text>
-            ))}
-          </View>
+                {/* 52 Columns */}
+                <View style={styles.gridColumnsRow}>
+                  {heatmapColumns.map((col, cIdx) => (
+                    <View key={`col-${cIdx}`} style={styles.gridCol}>
+                      {col.days.map((cell, rIdx) => {
+                        const isSelected = selectedHeatmapDay?.date === cell.date;
+                        const bg =
+                          cell.level === 4
+                            ? '#4ade80'
+                            : cell.level === 3
+                            ? '#22c55e'
+                            : cell.level === 2
+                            ? '#16a34a'
+                            : cell.level === 1
+                            ? '#15803d'
+                            : '#1a1e29';
 
-          {/* 7-Row Grid */}
-          <View style={styles.gridContainer}>
-            {heatmapGrid.map((row, rIdx) => (
-              <View key={`r-${rIdx}`} style={styles.heatmapRow}>
-                {row.map((cell, cIdx) => {
-                  const bg =
-                    cell.level === 4
-                      ? '#4ade80'
-                      : cell.level === 3
-                      ? '#22c55e'
-                      : cell.level === 2
-                      ? '#16a34a'
-                      : cell.level === 1
-                      ? '#15803d'
-                      : '#1a1e29';
-
-                  return (
-                    <TouchableOpacity
-                      key={`c-${cIdx}`}
-                      style={[styles.heatSquare, { backgroundColor: bg }]}
-                      activeOpacity={cell.workout ? 0.7 : 1}
-                      onPress={() => {
-                        if (cell.workout) {
-                          setDetailModalWorkout(cell.workout);
-                        }
-                      }}
-                    />
-                  );
-                })}
+                        return (
+                          <TouchableOpacity
+                            key={`c-${cIdx}-${rIdx}`}
+                            style={[
+                              styles.heatSquare,
+                              { backgroundColor: bg },
+                              cell.isToday && styles.heatSquareToday,
+                              isSelected && styles.heatSquareSelected,
+                              cell.isFuture && { opacity: 0.25 },
+                            ]}
+                            activeOpacity={cell.isFuture ? 1 : 0.7}
+                            disabled={cell.isFuture}
+                            onPress={() => {
+                              setSelectedHeatmapDay({
+                                date: cell.date,
+                                count: cell.entry?.count || 0,
+                                totalMin: cell.entry?.totalMin || 0,
+                                totalVol: cell.entry?.totalVol || 0,
+                                workouts: cell.entry?.workouts || [],
+                              });
+                            }}
+                          />
+                        );
+                      })}
+                    </View>
+                  ))}
+                </View>
               </View>
-            ))}
+            </ScrollView>
           </View>
 
           {/* Scale Legend */}
           <View style={styles.legendRow}>
-            <Text style={styles.legendText}>Less</Text>
-            <View style={[styles.legendSquare, { backgroundColor: '#1c1f2a' }]} />
+            <Text style={styles.legendText}>
+              {heatmapMetric === 'vol' ? 'Less volume' : 'Less time'}
+            </Text>
+            <View style={[styles.legendSquare, { backgroundColor: '#1a1e29' }]} />
             <View style={[styles.legendSquare, { backgroundColor: '#15803d' }]} />
             <View style={[styles.legendSquare, { backgroundColor: '#16a34a' }]} />
             <View style={[styles.legendSquare, { backgroundColor: '#22c55e' }]} />
             <View style={[styles.legendSquare, { backgroundColor: '#4ade80' }]} />
-            <Text style={styles.legendText}>More</Text>
+            <Text style={styles.legendText}>
+              {heatmapMetric === 'vol' ? 'More volume' : 'More time'}
+            </Text>
           </View>
+
+          {/* Day Inspection Details Box */}
+          {selectedHeatmapDay && (
+            <View style={styles.dayInspectBox}>
+              <View style={styles.dayInspectHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.dayInspectDate}>
+                    {new Date(selectedHeatmapDay.date + 'T12:00:00').toLocaleDateString('en-US', {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                  </Text>
+                  <Text style={styles.dayInspectStats}>
+                    {selectedHeatmapDay.count > 0
+                      ? `${selectedHeatmapDay.count} workout${selectedHeatmapDay.count > 1 ? 's' : ''} · ${selectedHeatmapDay.totalMin} min · ${selectedHeatmapDay.totalVol.toLocaleString()} ${userProfile?.unit || 'lb'}`
+                      : 'Rest day · No workouts logged'}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.dayInspectCloseBtn}
+                  onPress={() => setSelectedHeatmapDay(null)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.dayInspectCloseText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Workouts logged on that day */}
+              {selectedHeatmapDay.workouts.map((w, idx) => (
+                <TouchableOpacity
+                  key={w.id || `dw-${idx}`}
+                  style={styles.dayWorkoutCard}
+                  activeOpacity={0.7}
+                  onPress={() => setDetailModalWorkout(w)}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.dayWorkoutTitle}>{w.routineName || 'Workout'}</Text>
+                    <Text style={styles.dayWorkoutSub}>
+                      {Math.round((w.durationSeconds || 0) / 60)} min · {(w.totalVolumeLb || 0).toLocaleString()} {userProfile?.unit || 'lb'} · {w.exercises?.length || 0} exercises
+                    </Text>
+                  </View>
+                  <Text style={styles.dayWorkoutChevron}>›</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
         </View>
 
         {/* Muscular Balance / Fatigue / Strength Silhouette Card */}
@@ -1007,51 +1188,109 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   heatmapTitle: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#ffffff',
-    fontWeight: '600',
+    fontWeight: '700',
   },
-  metricToggleBtn: {
-    backgroundColor: '#242838',
+  heatmapSubtitle: {
+    fontSize: 11,
+    color: '#6b7280',
+    marginTop: 1,
+  },
+  heatmapSegmentedControl: {
+    flexDirection: 'row',
+    backgroundColor: '#0e1017',
+    borderRadius: 8,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: '#242838',
+  },
+  heatmapSegmentBtn: {
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 8,
+    borderRadius: 6,
   },
-  metricToggleText: {
+  heatmapSegmentBtnActive: {
+    backgroundColor: '#242838',
+  },
+  heatmapSegmentText: {
     fontSize: 11,
+    fontWeight: '600',
+    color: '#9ca3af',
+  },
+  heatmapSegmentTextActive: {
     color: '#22c55e',
     fontWeight: '700',
   },
-  monthLabelsRow: {
+  heatmapBodyRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingHorizontal: 6,
-    marginBottom: 6,
+    alignItems: 'flex-start',
+    marginBottom: 8,
   },
-  monthLabel: {
-    fontSize: 11,
+  heatmapStickyDaysCol: {
+    width: 26,
+    paddingRight: 4,
+  },
+  heatmapMonthSpacer: {
+    height: 18,
+  },
+  dayLabelItem: {
+    height: 15,
+    justifyContent: 'center',
+  },
+  dayLabelItemEmpty: {
+    height: 15,
+  },
+  dayLabelText: {
+    fontSize: 9,
     color: '#6b7280',
+    fontWeight: '500',
   },
-  gridContainer: {
-    gap: 3,
-    marginBottom: 10,
+  heatmapScrollContent: {
+    paddingRight: 10,
   },
-  heatmapRow: {
+  monthHeaderRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    height: 18,
+  },
+  monthColCell: {
+    width: 15,
+    overflow: 'visible',
+  },
+  monthColLabel: {
+    fontSize: 9,
+    color: '#6b7280',
+    fontWeight: '600',
+    width: 35,
+  },
+  gridColumnsRow: {
+    flexDirection: 'row',
+  },
+  gridCol: {
+    width: 15,
+    alignItems: 'center',
   },
   heatSquare: {
-    width: 10,
-    height: 10,
-    borderRadius: 2,
+    width: 12,
+    height: 12,
+    borderRadius: 2.5,
+    marginVertical: 1.5,
     backgroundColor: '#1a1e29',
+  },
+  heatSquareToday: {
+    borderWidth: 1.5,
+    borderColor: '#3b82f6',
+  },
+  heatSquareSelected: {
+    borderWidth: 1.5,
+    borderColor: '#ffffff',
   },
   legendRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
-    gap: 5,
-    marginTop: 4,
+    gap: 4,
+    marginTop: 6,
   },
   legendText: {
     fontSize: 11,
@@ -1062,6 +1301,63 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 2,
+  },
+  dayInspectBox: {
+    backgroundColor: '#10131a',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#242838',
+  },
+  dayInspectHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  dayInspectDate: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  dayInspectStats: {
+    fontSize: 11,
+    color: '#9ca3af',
+    marginTop: 2,
+  },
+  dayInspectCloseBtn: {
+    padding: 4,
+  },
+  dayInspectCloseText: {
+    fontSize: 13,
+    color: '#6b7280',
+    fontWeight: '700',
+  },
+  dayWorkoutCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#161a24',
+    padding: 10,
+    borderRadius: 8,
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: '#252a3b',
+  },
+  dayWorkoutTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#e5e7eb',
+  },
+  dayWorkoutSub: {
+    fontSize: 11,
+    color: '#9ca3af',
+    marginTop: 2,
+  },
+  dayWorkoutChevron: {
+    fontSize: 16,
+    color: '#6b7280',
+    marginLeft: 8,
   },
   silhouetteCard: {
     backgroundColor: '#161922',
