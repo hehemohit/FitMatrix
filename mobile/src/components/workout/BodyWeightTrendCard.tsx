@@ -18,6 +18,8 @@ interface BodyWeightTrendCardProps {
   lastWeighInDate?: string;
   weighInRecords?: WeighInRecord[];
   onLogPress?: () => void;
+  onGoalPress?: () => void;
+  onAllWeighInsPress?: () => void;
 }
 
 // Catmull-Rom spline to cubic bezier converter for ultra-smooth charting
@@ -46,6 +48,8 @@ export const BodyWeightTrendCard: React.FC<BodyWeightTrendCardProps> = ({
   lastWeighInDate,
   weighInRecords = [],
   onLogPress,
+  onGoalPress,
+  onAllWeighInsPress,
 }) => {
   const cardWidth = Dimensions.get('window').width - 32;
   const chartWidth = cardWidth - 32;
@@ -153,10 +157,14 @@ export const BodyWeightTrendCard: React.FC<BodyWeightTrendCardProps> = ({
       <View style={styles.headerRow}>
         <Text style={styles.title}>Body weight</Text>
         <View style={styles.rightActions}>
-          <View style={styles.targetBadge}>
+          <TouchableOpacity
+            style={styles.targetBadge}
+            onPress={onGoalPress}
+            activeOpacity={onGoalPress ? 0.7 : 1}
+          >
             <Text style={styles.targetIcon}>🎯</Text>
             <Text style={styles.targetText}>{goalWeight}</Text>
-          </View>
+          </TouchableOpacity>
           <TouchableOpacity
             style={styles.logBtn}
             onPress={onLogPress}
@@ -277,6 +285,16 @@ export const BodyWeightTrendCard: React.FC<BodyWeightTrendCardProps> = ({
           <Text style={styles.xMonth}>{monthLabels[2]}</Text>
         </View>
       </View>
+
+      {onAllWeighInsPress && (
+        <TouchableOpacity
+          style={styles.allWeighInsRow}
+          onPress={onAllWeighInsPress}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.allWeighInsText}>All weigh-ins ›</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 };
@@ -391,6 +409,18 @@ const styles = StyleSheet.create({
   xMonth: {
     fontSize: 11,
     color: '#6b7280',
+  },
+  allWeighInsRow: {
+    alignItems: 'flex-end',
+    marginTop: 10,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#202434',
+  },
+  allWeighInsText: {
+    fontSize: 12,
+    color: '#22c55e',
+    fontWeight: '700',
   },
 });
 

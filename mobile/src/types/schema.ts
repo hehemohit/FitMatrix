@@ -14,6 +14,7 @@ export interface UserProfile {
   height_cm?: number;
   age?: number;
   activity_level?: string;
+  unit?: 'kg' | 'lb';
 }
 
 export interface DailyLog {
