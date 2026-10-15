@@ -60,7 +60,10 @@ interface WorkoutSessionState {
   activeInputString: string;
 
   // Actions
-  startWorkout: (name?: string, initialExercises?: ExerciseRecord[]) => void;
+  startWorkout: (
+    name?: string,
+    initialExercises?: (ExerciseRecord & { targetSets?: number; targetReps?: string | number })[]
+  ) => void;
   pauseWorkout: () => void;
   resumeWorkout: () => void;
   minimizeWorkout: (isMinimized: boolean) => void;
@@ -113,22 +116,33 @@ export const useWorkoutSessionStore = create<WorkoutSessionState>((set, get) => 
   activeInputString: '',
 
   startWorkout: (name = 'Workout Session', initialExercises = []) => {
-    const formattedExercises: ActiveWorkoutExercise[] = initialExercises.map((e, idx) => ({
-      instanceId: `inst_${Date.now()}_${idx}`,
-      exerciseId: e.id,
-      name: e.name,
-      category: e.category,
-      target: e.target,
-      secondary: e.secondary,
-      equipment: e.equipment,
-      image: e.image,
-      gifUrl: e.gifUrl,
-      sets: [
-        { setNumber: 1, weight: 135, reps: 8, targetReps: '8-10 reps', targetRir: 2, isCompleted: false },
-        { setNumber: 2, weight: 135, reps: 8, targetReps: '8-10 reps', targetRir: 2, isCompleted: false },
-        { setNumber: 3, weight: 135, reps: 8, targetReps: '8-10 reps', targetRir: 2, isCompleted: false },
-      ],
-    }));
+    const formattedExercises: ActiveWorkoutExercise[] = initialExercises.map((e, idx) => {
+      const setCount = e.targetSets && e.targetSets > 0 ? e.targetSets : 3;
+      const targetRepsStr = e.targetReps ? `${e.targetReps} reps` : '8-10 reps';
+      const defaultReps = typeof e.targetReps === 'number' ? e.targetReps : 8;
+
+      const sets = Array.from({ length: setCount }, (_, sIdx) => ({
+        setNumber: sIdx + 1,
+        weight: 135,
+        reps: defaultReps,
+        targetReps: targetRepsStr,
+        targetRir: 2,
+        isCompleted: false,
+      }));
+
+      return {
+        instanceId: `inst_${Date.now()}_${idx}`,
+        exerciseId: e.id,
+        name: e.name,
+        category: e.category,
+        target: e.target,
+        secondary: e.secondary,
+        equipment: e.equipment,
+        image: e.image,
+        gifUrl: e.gifUrl,
+        sets,
+      };
+    });
 
     set({
       isActive: true,

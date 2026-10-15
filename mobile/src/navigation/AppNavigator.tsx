@@ -11,6 +11,7 @@ import { MealEntryModal } from '../components/MealEntryModal';
 import { WeighInModal } from '../components/macrofactor/WeighInModal';
 import { ActiveWorkoutScreen } from '../screens/workout/ActiveWorkoutScreen';
 import { WorkoutCompleteScreen } from '../screens/workout/WorkoutCompleteScreen';
+import { WorkoutDashboardScreen } from '../screens/workout/WorkoutDashboardScreen';
 import { useTrainerStore } from '../store/useTrainerStore';
 import { useWorkoutSessionStore, WorkoutSummaryData } from '../store/useWorkoutSessionStore';
 import { useExerciseLibraryStore } from '../store/useExerciseLibraryStore';
@@ -33,6 +34,7 @@ export const AppNavigator: React.FC = () => {
   const [quickActionVisible, setQuickActionVisible] = useState(false);
   const [mealModalVisible, setMealModalVisible] = useState(false);
   const [weighInModalVisible, setWeighInModalVisible] = useState(false);
+  const [workoutDashboardVisible, setWorkoutDashboardVisible] = useState(false);
   const [completedSummary, setCompletedSummary] = useState<WorkoutSummaryData | null>(null);
 
   const handleSelectQuickAction = (action: 'meal' | 'weight' | 'workout') => {
@@ -42,9 +44,7 @@ export const AppNavigator: React.FC = () => {
       setWeighInModalVisible(true);
     } else if (action === 'workout') {
       if (!isActive) {
-        // Start workout with starter exercises from dataset
-        const starters = libraryExercises.slice(0, 3);
-        startWorkout('Full Body Session', starters);
+        setWorkoutDashboardVisible(true);
       } else {
         minimizeWorkout(false);
       }
@@ -125,6 +125,22 @@ export const AppNavigator: React.FC = () => {
         initialWeight={userProfile.weight_kg}
       />
 
+      {/* Workout Dashboard Modal */}
+      <Modal
+        visible={workoutDashboardVisible}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setWorkoutDashboardVisible(false)}
+      >
+        <WorkoutDashboardScreen
+          onClose={() => setWorkoutDashboardVisible(false)}
+          onStartWorkout={(name, initialExercises) => {
+            setWorkoutDashboardVisible(false);
+            startWorkout(name, initialExercises);
+          }}
+        />
+      </Modal>
+
       {/* Full-Screen Active Workout Modal */}
       <Modal
         visible={isActive && !isMinimized}
@@ -134,7 +150,7 @@ export const AppNavigator: React.FC = () => {
       >
         <ActiveWorkoutScreen
           onCompleteWorkout={summary => setCompletedSummary(summary)}
-          onExitWorkout={() => {}}
+          onExitWorkout={() => minimizeWorkout(true)}
         />
       </Modal>
 

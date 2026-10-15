@@ -6,9 +6,11 @@ import {
   TouchableOpacity,
   Image,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
+  Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeTopInset } from '../../hooks/useSafeTopInset';
 import { colors } from '../../theme/colors';
 import { WorkoutSummaryData } from '../../store/useWorkoutSessionStore';
 import { MuscleSkeletonMap } from '../../components/workout/MuscleSkeletonMap';
@@ -23,6 +25,9 @@ export const WorkoutCompleteScreen: React.FC<WorkoutCompleteScreenProps> = ({
   summary,
   onDone,
 }) => {
+  const insets = useSafeAreaInsets();
+  const topInset = useSafeTopInset(10);
+
   // Aggregate trained muscles across all exercises
   const highlightedMuscles = useMemo(() => {
     const muscles = new Set<MuscleKey>();
@@ -43,11 +48,11 @@ export const WorkoutCompleteScreen: React.FC<WorkoutCompleteScreenProps> = ({
   const topExercise = summary.exercises[0] || null;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" />
 
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: topInset }]}>
         <TouchableOpacity onPress={onDone} style={styles.closeBtn}>
           <Text style={styles.closeBtnText}>✕</Text>
         </TouchableOpacity>
@@ -166,12 +171,12 @@ export const WorkoutCompleteScreen: React.FC<WorkoutCompleteScreenProps> = ({
       </ScrollView>
 
       {/* Done Button */}
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 14) + 6 }]}>
         <TouchableOpacity style={styles.doneBtn} onPress={onDone} activeOpacity={0.8}>
           <Text style={styles.doneBtnText}>Done</Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </View>
   );
 };
 

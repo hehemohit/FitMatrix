@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { useSafeTopInset } from '../../hooks/useSafeTopInset';
 import { colors } from '../../theme/colors';
 
 interface DualWorkoutHeaderProps {
@@ -19,6 +20,8 @@ export const DualWorkoutHeader: React.FC<DualWorkoutHeaderProps> = ({
   onOpenMenu,
   onOpenRestSheet,
 }) => {
+  const topInset = useSafeTopInset(10);
+
   const formatDuration = (sec: number) => {
     const hrs = Math.floor(sec / 3600);
     const mins = Math.floor((sec % 3600) / 60);
@@ -30,7 +33,7 @@ export const DualWorkoutHeader: React.FC<DualWorkoutHeaderProps> = ({
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: topInset }]}>
       {/* Left: Menu & Workout Duration */}
       <TouchableOpacity style={styles.leftGroup} onPress={onOpenMenu} activeOpacity={0.7}>
         <Text style={styles.hamburgerIcon}>☰</Text>

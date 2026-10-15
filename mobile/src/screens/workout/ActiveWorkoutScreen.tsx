@@ -4,9 +4,12 @@ import {
   Text,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
+  TouchableOpacity,
   StatusBar,
+  Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeTopInset } from '../../hooks/useSafeTopInset';
 import { colors } from '../../theme/colors';
 import { useWorkoutSessionStore } from '../../store/useWorkoutSessionStore';
 import { DualWorkoutHeader } from '../../components/workout/DualWorkoutHeader';
@@ -29,6 +32,9 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
   onCompleteWorkout,
   onExitWorkout,
 }) => {
+  const insets = useSafeAreaInsets();
+  const topInset = useSafeTopInset(8);
+
   const {
     isActive,
     isPaused,
@@ -66,6 +72,7 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
   const [addExerciseVisible, setAddExerciseVisible] = useState(false);
   const [swapMode, setSwapMode] = useState(false);
   const [infoModalVisible, setInfoModalVisible] = useState(false);
+  const [isKeypadOpen, setIsKeypadOpen] = useState(false);
 
   // Background timer ticker
   useEffect(() => {
@@ -116,20 +123,24 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
 
   if (!isActive && exercises.length === 0) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={[styles.container, { paddingTop: topInset, paddingBottom: insets.bottom }]}>
+        <StatusBar barStyle="light-content" />
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyTitle}>No Active Workout</Text>
           <Text style={styles.emptySub}>Start a session from the Plans Studio or Workout tab.</Text>
+          <TouchableOpacity style={styles.emptyCloseBtn} onPress={onExitWorkout}>
+            <Text style={styles.emptyCloseText}>Back to Dashboard</Text>
+          </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" />
 
-      {/* 1. Dual Timers Header */}
+      {/* 1. Dual Timers Header (has its own safe top inset) */}
       <DualWorkoutHeader
         elapsedSeconds={elapsedSeconds}
         restSeconds={restTimerSeconds}
@@ -151,7 +162,13 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
       />
 
       {/* Main Body */}
-      <ScrollView style={styles.scrollBody} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        style={styles.scrollBody}
+        contentContainerStyle={{
+          paddingBottom: isKeypadOpen ? 300 : 120,
+        }}
+        keyboardShouldPersistTaps="handled"
+      >
         {activeExercise && (
           <View style={styles.exerciseHeader}>
             <View style={styles.nameRow}>
@@ -185,7 +202,10 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
               sets={activeExercise.sets}
               activeSetIndex={activeSetIndex}
               activeFieldType={activeFieldType}
-              onFocusField={(sIdx, field) => focusField(activeExerciseIndex, sIdx, field)}
+              onFocusField={(sIdx, field) => {
+                focusField(activeExerciseIndex, sIdx, field);
+                setIsKeypadOpen(true);
+              }}
               onToggleComplete={sIdx => toggleSetComplete(activeExerciseIndex, sIdx)}
               onAddSet={() => addSet(activeExerciseIndex)}
             />
@@ -193,15 +213,36 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
         )}
       </ScrollView>
 
-      {/* 5. Custom Numeric Keypad & Plate Math */}
-      <CustomWorkoutKeypad
-        currentWeight={currentWeight}
-        activeFieldType={activeFieldType}
-        onKeyPress={handleKeypadPress}
-        onBackspace={handleKeypadBackspace}
-        onIncrement={handleKeypadIncrement}
-        onNext={handleKeypadNext}
-      />
+      {/* 5. Responsive Bottom Dock: Complete Session Button + On-Demand Keypad */}
+      <View style={styles.bottomDockContainer}>
+        {/* Complete Session Button (sits bottom-middle when closed, elevates on top of keypad when open) */}
+        <View style={[
+          styles.completeBtnWrapper,
+          !isKeypadOpen && { paddingBottom: Math.max(insets.bottom, 14) + 6 }
+        ]}>
+          <TouchableOpacity
+            style={styles.completeWorkoutBtn}
+            onPress={handleComplete}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.completeWorkoutBtnIcon}>🏁</Text>
+            <Text style={styles.completeWorkoutBtnText}>Complete Workout</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Custom Numeric Keypad & Plate Math (opens on-demand) */}
+        {isKeypadOpen && (
+          <CustomWorkoutKeypad
+            currentWeight={currentWeight}
+            activeFieldType={activeFieldType}
+            onKeyPress={handleKeypadPress}
+            onBackspace={handleKeypadBackspace}
+            onIncrement={handleKeypadIncrement}
+            onNext={handleKeypadNext}
+            onClose={() => setIsKeypadOpen(false)}
+          />
+        )}
+      </View>
 
       {/* Modals */}
       <RestTimerSheet
@@ -235,7 +276,7 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
         onClose={() => setInfoModalVisible(false)}
         exercise={activeExerciseRecord}
       />
-    </SafeAreaView>
+    </View>
   );
 };
 
@@ -306,5 +347,53 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#767d8a',
     textAlign: 'center',
+    marginBottom: 20,
+  },
+  emptyCloseBtn: {
+    backgroundColor: '#222733',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#343c4e',
+  },
+  emptyCloseText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  bottomDockContainer: {
+    backgroundColor: '#121418',
+    borderTopWidth: 1,
+    borderTopColor: '#1d212b',
+  },
+  completeBtnWrapper: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    alignItems: 'center',
+  },
+  completeWorkoutBtn: {
+    width: '100%',
+    backgroundColor: '#3b82f6',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 14,
+    shadowColor: '#3b82f6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  completeWorkoutBtnIcon: {
+    fontSize: 16,
+    marginRight: 8,
+  },
+  completeWorkoutBtnText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '900',
+    letterSpacing: 0.3,
   },
 });
