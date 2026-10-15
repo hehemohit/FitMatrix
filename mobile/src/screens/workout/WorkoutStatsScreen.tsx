@@ -64,6 +64,27 @@ const ALL_MAJOR_MUSCLES = [
   'forearm',
 ];
 
+function toCanonicalMuscle(raw: string | undefined): string {
+  if (!raw) return 'chest';
+  const s = raw.toLowerCase().replace(/[\s_-]+/g, '');
+  if (s.includes('pect') || s.includes('chest')) return 'chest';
+  if (s.includes('delt') || s.includes('shoulder')) return 'deltoids';
+  if (s.includes('bicep')) return 'biceps';
+  if (s.includes('tricep')) return 'triceps';
+  if (s.includes('lat') || s.includes('upperback') || s.includes('back')) return 'upper-back';
+  if (s.includes('trap')) return 'trapezius';
+  if (s.includes('forearm') || s.includes('lowerarm')) return 'forearm';
+  if (s.includes('abs') || s.includes('waist') || s.includes('core') || s.includes('abdominal')) return 'abs';
+  if (s.includes('oblique')) return 'obliques';
+  if (s.includes('quad') || s.includes('upperleg')) return 'quadriceps';
+  if (s.includes('hamstring')) return 'hamstring';
+  if (s.includes('glute')) return 'gluteal';
+  if (s.includes('calv') || s.includes('lowerleg')) return 'calves';
+  if (s.includes('adduct')) return 'adductors';
+  return 'chest';
+}
+
+
 export const WorkoutStatsScreen: React.FC<WorkoutStatsScreenProps> = ({
   onOpenHistory,
 }) => {
@@ -232,23 +253,31 @@ export const WorkoutStatsScreen: React.FC<WorkoutStatsScreenProps> = ({
       });
     }
 
-    const setsPerMuscle: Record<string, number> = {};
+    // Scan all workouts for latest training timestamp (for Fatigue & Strength)
     const latestTrained: Record<string, number> = {};
-
-    filtered.forEach(w => {
+    workouts.forEach(w => {
       const wTimestamp = w.completedAt ? new Date(w.completedAt).getTime() : Date.now();
       w.exercises?.forEach(ex => {
-        const primary = (ex.target || ex.category || 'chest').toLowerCase().replace(/\s+/g, '-');
+        const canonical = toCanonicalMuscle(ex.target || ex.category);
+        const hasCompleted = ex.sets?.some(s => s.isCompleted);
+        if (hasCompleted && (!latestTrained[canonical] || wTimestamp > latestTrained[canonical])) {
+          latestTrained[canonical] = wTimestamp;
+        }
+      });
+    });
+
+    // Scan filtered workouts for sets breakdown (for Muscle balance)
+    const setsPerMuscle: Record<string, number> = {};
+    filtered.forEach(w => {
+      w.exercises?.forEach(ex => {
+        const canonical = toCanonicalMuscle(ex.target || ex.category);
         ex.sets?.forEach(s => {
           if (!s.isCompleted) return;
           if (onlyHardSets) {
             const isHard = s.rir != null ? s.rir <= 2 : s.type === 'failure' || (s.rpe != null && s.rpe >= 8);
             if (!isHard) return;
           }
-          setsPerMuscle[primary] = (setsPerMuscle[primary] || 0) + 1;
-          if (!latestTrained[primary] || wTimestamp > latestTrained[primary]) {
-            latestTrained[primary] = wTimestamp;
-          }
+          setsPerMuscle[canonical] = (setsPerMuscle[canonical] || 0) + 1;
         });
       });
     });
@@ -316,8 +345,8 @@ export const WorkoutStatsScreen: React.FC<WorkoutStatsScreenProps> = ({
 
     workouts.forEach(w => {
       w.exercises?.forEach(ex => {
-        const target = (ex.target || ex.category || '').toLowerCase().replace(/\s+/g, '-');
-        if (target.includes(selectedMuscle) || selectedMuscle.includes(target)) {
+        const canonical = toCanonicalMuscle(ex.target || ex.category);
+        if (canonical === selectedMuscle) {
           let best1RM = 0;
           ex.sets?.forEach(s => {
             if (s.isCompleted) {
