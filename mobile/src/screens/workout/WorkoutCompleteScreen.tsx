@@ -13,13 +13,41 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSafeTopInset } from '../../hooks/useSafeTopInset';
 import { colors } from '../../theme/colors';
 import { WorkoutSummaryData } from '../../store/useWorkoutSessionStore';
-import { MuscleSkeletonMap } from '../../components/workout/MuscleSkeletonMap';
-import { mapExerciseToMuscles, MuscleKey } from '../../utils/muscleTargetMapper';
+import { AnatomicalSilhouette, MuscleHeatMap } from '../../components/workout/AnatomicalSilhouette';
 
 interface WorkoutCompleteScreenProps {
   summary: WorkoutSummaryData;
   onDone: () => void;
 }
+
+const TARGET_TO_ANATOMY: Record<string, string> = {
+  abs: 'abs',
+  abdominals: 'abs',
+  chest: 'chest',
+  pectorals: 'chest',
+  biceps: 'biceps',
+  triceps: 'triceps',
+  delts: 'deltoids',
+  deltoids: 'deltoids',
+  shoulders: 'deltoids',
+  'upper back': 'upper-back',
+  lats: 'upper-back',
+  'latissimus dorsi': 'upper-back',
+  'lower back': 'lower-back',
+  spine: 'lower-back',
+  traps: 'trapezius',
+  trapezius: 'trapezius',
+  quads: 'quadriceps',
+  quadriceps: 'quadriceps',
+  hamstrings: 'hamstring',
+  hamstring: 'hamstring',
+  glutes: 'gluteal',
+  calves: 'calves',
+  forearms: 'forearm',
+  forearm: 'forearm',
+  obliques: 'obliques',
+  adductors: 'adductors',
+};
 
 export const WorkoutCompleteScreen: React.FC<WorkoutCompleteScreenProps> = ({
   summary,
@@ -28,14 +56,22 @@ export const WorkoutCompleteScreen: React.FC<WorkoutCompleteScreenProps> = ({
   const insets = useSafeAreaInsets();
   const topInset = useSafeTopInset(10);
 
-  // Aggregate trained muscles across all exercises
-  const highlightedMuscles = useMemo(() => {
-    const muscles = new Set<MuscleKey>();
+  // Compute dynamic muscle heat map based on completed sets per muscle
+  const workoutHeatMap: MuscleHeatMap = useMemo(() => {
+    const map: Record<string, number> = {};
     summary.exercises.forEach(ex => {
-      const mapped = mapExerciseToMuscles(ex.target, ex.secondary);
-      mapped.primary.forEach(m => muscles.add(m));
+      const setsCount = ex.sets.filter(s => s.isCompleted).length || ex.sets.length || 3;
+      const primaryKey = TARGET_TO_ANATOMY[ex.target.toLowerCase()] || 'abs';
+      map[primaryKey] = (map[primaryKey] || 0) + setsCount;
+
+      ex.secondary?.forEach(sec => {
+        const secKey = TARGET_TO_ANATOMY[sec.toLowerCase()];
+        if (secKey) {
+          map[secKey] = (map[secKey] || 0) + Math.ceil(setsCount / 2);
+        }
+      });
     });
-    return Array.from(muscles);
+    return map;
   }, [summary.exercises]);
 
   const formatDuration = (sec: number) => {
@@ -61,13 +97,14 @@ export const WorkoutCompleteScreen: React.FC<WorkoutCompleteScreenProps> = ({
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollBody} showsVerticalScrollIndicator={false}>
-        {/* 1. Responsive Front & Back Anatomical Muscle Skeleton */}
+        {/* 1. High-Fidelity Front & Back Muscular Silhouette */}
         <View style={styles.skeletonCard}>
-          <MuscleSkeletonMap
-            highlightedMuscles={highlightedMuscles}
-            width={120}
-            height={210}
-            showLabels={true}
+          <Text style={styles.silhouetteHeaderTitle}>Trained Muscular Distribution</Text>
+          <AnatomicalSilhouette
+            gender="male"
+            heatMap={workoutHeatMap}
+            height={260}
+            mode="balance"
           />
         </View>
 
@@ -217,14 +254,22 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   skeletonCard: {
-    backgroundColor: '#171920',
-    borderRadius: 16,
-    paddingVertical: 12,
+    backgroundColor: '#161922',
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: '#242733',
+    borderColor: '#242838',
+  },
+  silhouetteHeaderTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#9ca3af',
+    marginBottom: 10,
+    alignSelf: 'flex-start',
   },
   sectionTitle: {
     fontSize: 16,
