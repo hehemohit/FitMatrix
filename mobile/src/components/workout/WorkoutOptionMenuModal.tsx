@@ -17,6 +17,9 @@ interface WorkoutOptionMenuModalProps {
   onMinimize: () => void;
   onComplete: () => void;
   onDiscard: () => void;
+  onRename?: () => void;
+  onMarkAllDone?: () => void;
+  onAddExercise?: () => void;
 }
 
 export const WorkoutOptionMenuModal: React.FC<WorkoutOptionMenuModalProps> = ({
@@ -27,6 +30,9 @@ export const WorkoutOptionMenuModal: React.FC<WorkoutOptionMenuModalProps> = ({
   onMinimize,
   onComplete,
   onDiscard,
+  onRename,
+  onMarkAllDone,
+  onAddExercise,
 }) => {
   const handleConfirmDiscard = () => {
     Alert.alert(
@@ -53,6 +59,57 @@ export const WorkoutOptionMenuModal: React.FC<WorkoutOptionMenuModalProps> = ({
           <View style={styles.handle} />
           <Text style={styles.sheetTitle}>Workout Options</Text>
 
+          {/* Rename Routine */}
+          {onRename && (
+            <TouchableOpacity
+              style={styles.menuRow}
+              onPress={() => {
+                onClose();
+                onRename();
+              }}
+            >
+              <Text style={styles.menuIcon}>✏️</Text>
+              <View style={styles.menuTextWrap}>
+                <Text style={styles.menuTitle}>Rename Workout</Text>
+                <Text style={styles.menuSub}>Customize the title of this session</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+
+          {/* Add Exercise */}
+          {onAddExercise && (
+            <TouchableOpacity
+              style={styles.menuRow}
+              onPress={() => {
+                onClose();
+                onAddExercise();
+              }}
+            >
+              <Text style={styles.menuIcon}>➕</Text>
+              <View style={styles.menuTextWrap}>
+                <Text style={styles.menuTitle}>Add Exercise</Text>
+                <Text style={styles.menuSub}>Insert a movement into this session</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+
+          {/* Mark All Sets Completed */}
+          {onMarkAllDone && (
+            <TouchableOpacity
+              style={styles.menuRow}
+              onPress={() => {
+                onClose();
+                onMarkAllDone();
+              }}
+            >
+              <Text style={styles.menuIcon}>✅</Text>
+              <View style={styles.menuTextWrap}>
+                <Text style={styles.menuTitle}>Mark All Sets Completed</Text>
+                <Text style={styles.menuSub}>Check off every set currently planned</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+
           {/* Pause / Resume */}
           <TouchableOpacity
             style={styles.menuRow}
@@ -64,7 +121,7 @@ export const WorkoutOptionMenuModal: React.FC<WorkoutOptionMenuModalProps> = ({
             <Text style={styles.menuIcon}>{isPaused ? '▶️' : '⏸️'}</Text>
             <View style={styles.menuTextWrap}>
               <Text style={styles.menuTitle}>{isPaused ? 'Resume Workout' : 'Pause Workout'}</Text>
-              <Text style={styles.menuSub}>Temporarily stops the duration timer</Text>
+              <Text style={styles.menuSub}>Temporarily pause the duration timer</Text>
             </View>
           </TouchableOpacity>
 
@@ -79,7 +136,7 @@ export const WorkoutOptionMenuModal: React.FC<WorkoutOptionMenuModalProps> = ({
             <Text style={styles.menuIcon}>🔽</Text>
             <View style={styles.menuTextWrap}>
               <Text style={styles.menuTitle}>Minimize Workout</Text>
-              <Text style={styles.menuSub}>Navigate the rest of the app while timer keeps running</Text>
+              <Text style={styles.menuSub}>Keep timer ticking in floating mini-bar</Text>
             </View>
           </TouchableOpacity>
 
@@ -93,7 +150,7 @@ export const WorkoutOptionMenuModal: React.FC<WorkoutOptionMenuModalProps> = ({
           >
             <Text style={styles.menuIcon}>🏁</Text>
             <View style={styles.menuTextWrap}>
-              <Text style={[styles.menuTitle, { color: '#4b88eb' }]}>Complete Workout</Text>
+              <Text style={[styles.menuTitle, { color: '#22c55e' }]}>Complete Workout</Text>
               <Text style={styles.menuSub}>Finish session and view muscle volume summary</Text>
             </View>
           </TouchableOpacity>
@@ -102,7 +159,7 @@ export const WorkoutOptionMenuModal: React.FC<WorkoutOptionMenuModalProps> = ({
           <TouchableOpacity style={[styles.menuRow, styles.discardRow]} onPress={handleConfirmDiscard}>
             <Text style={styles.menuIcon}>🗑️</Text>
             <View style={styles.menuTextWrap}>
-              <Text style={[styles.menuTitle, { color: '#e05353' }]}>Discard Workout</Text>
+              <Text style={[styles.menuTitle, { color: '#ef4444' }]}>Discard Workout</Text>
               <Text style={styles.menuSub}>End workout without saving</Text>
             </View>
           </TouchableOpacity>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -6,16 +6,17 @@ import {
   StyleSheet,
   TouchableOpacity,
   StatusBar,
-  Platform,
+  TextInput,
+  Modal,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useSafeTopInset } from '../../hooks/useSafeTopInset';
-import { colors } from '../../theme/colors';
-import { useWorkoutSessionStore } from '../../store/useWorkoutSessionStore';
-import { DualWorkoutHeader } from '../../components/workout/DualWorkoutHeader';
-import { ExerciseCarousel } from '../../components/workout/ExerciseCarousel';
-import { ExerciseActionBar } from '../../components/workout/ExerciseActionBar';
+import Svg, { Path, Circle } from 'react-native-svg';
+import { useWorkoutSessionStore, WorkoutSummaryData, SetType } from '../../store/useWorkoutSessionStore';
+import { WorkoutHeaderBar } from '../../components/workout/WorkoutHeaderBar';
+import { WorkoutExerciseChips } from '../../components/workout/WorkoutExerciseChips';
 import { SetLoggingTable } from '../../components/workout/SetLoggingTable';
+import { WorkoutRestTimerBar } from '../../components/workout/WorkoutRestTimerBar';
 import { CustomWorkoutKeypad } from '../../components/workout/CustomWorkoutKeypad';
 import { RestTimerSheet } from '../../components/workout/RestTimerSheet';
 import { WorkoutOptionMenuModal } from '../../components/workout/WorkoutOptionMenuModal';
@@ -24,7 +25,7 @@ import { ExerciseInfoModal } from '../../components/workout/ExerciseInfoModal';
 import { ExerciseRecord } from '../../utils/muscleTargetMapper';
 
 interface ActiveWorkoutScreenProps {
-  onCompleteWorkout: (summary: any) => void;
+  onCompleteWorkout: (summary: WorkoutSummaryData) => void;
   onExitWorkout: () => void;
 }
 
@@ -33,23 +34,22 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
   onExitWorkout,
 }) => {
   const insets = useSafeAreaInsets();
-  const topInset = useSafeTopInset(8);
 
   const {
     isActive,
     isPaused,
+    workoutName,
     elapsedSeconds,
     restTimerSeconds,
-    restTimerActive,
     isRestSheetOpen,
     exercises,
     activeExerciseIndex,
     activeSetIndex,
     activeFieldType,
-    tickWorkoutTimer,
     pauseWorkout,
     resumeWorkout,
     minimizeWorkout,
+    renameWorkout,
     discardWorkout,
     finishWorkout,
     adjustRestTimer,
@@ -58,10 +58,17 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
     setRestSheetOpen,
     setActiveExerciseIndex,
     addExerciseToWorkout,
+    removeExerciseFromWorkout,
     swapExerciseInWorkout,
+    reorderExercise,
+    updateExerciseNotes,
     addSet,
+    removeSet,
     toggleSetComplete,
+    markAllSetsDone,
     setSetType,
+    updateSetWeight,
+    updateSetReps,
     focusField,
     handleKeypadPress,
     handleKeypadBackspace,
@@ -71,50 +78,49 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
 
   const [menuVisible, setMenuVisible] = useState(false);
   const [addExerciseVisible, setAddExerciseVisible] = useState(false);
-  const [swapMode, setSwapMode] = useState(false);
-  const [infoModalVisible, setInfoModalVisible] = useState(false);
+  const [swapExerciseIdx, setSwapExerciseIdx] = useState<number | null>(null);
+  const [infoModalExercise, setInfoModalExercise] = useState<ExerciseRecord | null>(null);
   const [isKeypadOpen, setIsKeypadOpen] = useState(false);
+  const [renameModalVisible, setRenameModalVisible] = useState(false);
+  const [renameText, setRenameText] = useState('');
+  const [exerciseActionMenuIdx, setExerciseActionMenuIdx] = useState<number | null>(null);
 
-  // Background timer ticker
-  useEffect(() => {
-    const interval = setInterval(() => {
-      tickWorkoutTimer();
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [tickWorkoutTimer]);
+  // Aggregated set statistics
+  const totalSets = exercises.reduce((acc, ex) => acc + ex.sets.length, 0);
+  const doneSets = exercises.reduce(
+    (acc, ex) => acc + ex.sets.filter(s => s.isCompleted).length,
+    0
+  );
 
   const activeExercise = exercises[activeExerciseIndex] || null;
   const currentSet = activeExercise?.sets[activeSetIndex] || null;
   const currentWeight = currentSet ? currentSet.weight : 0;
 
-  // Selected exercise as ExerciseRecord for Info Modal
-  const activeExerciseRecord: ExerciseRecord | null = useMemo(() => {
-    if (!activeExercise) return null;
-    return {
-      id: activeExercise.exerciseId,
-      name: activeExercise.name,
-      category: activeExercise.category,
-      target: activeExercise.target,
-      secondary: activeExercise.secondary || [],
-      equipment: activeExercise.equipment,
-      image: activeExercise.image,
-      gifUrl: activeExercise.gifUrl,
-      instructions: [],
-    };
-  }, [activeExercise]);
-
   const handleSelectAddOrSwap = (selected: ExerciseRecord) => {
-    if (swapMode) {
-      swapExerciseInWorkout(activeExerciseIndex, selected);
-      setSwapMode(false);
+    if (swapExerciseIdx !== null) {
+      swapExerciseInWorkout(swapExerciseIdx, selected);
+      setSwapExerciseIdx(null);
     } else {
       addExerciseToWorkout(selected);
     }
   };
 
-  const handleComplete = () => {
-    const summary = finishWorkout();
-    onCompleteWorkout(summary);
+  const handleFinish = () => {
+    Alert.alert(
+      'Finish Workout?',
+      `You completed ${doneSets} of ${totalSets} planned sets. Ready to save?`,
+      [
+        { text: 'Keep Going', style: 'cancel' },
+        {
+          text: 'Finish & Save',
+          style: 'default',
+          onPress: () => {
+            const summary = finishWorkout();
+            onCompleteWorkout(summary);
+          },
+        },
+      ]
+    );
   };
 
   const handleDiscard = () => {
@@ -122,9 +128,21 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
     onExitWorkout();
   };
 
+  const handleOpenRename = () => {
+    setRenameText(workoutName);
+    setRenameModalVisible(true);
+  };
+
+  const handleSaveRename = () => {
+    if (renameText.trim()) {
+      renameWorkout(renameText.trim());
+    }
+    setRenameModalVisible(false);
+  };
+
   if (!isActive && exercises.length === 0) {
     return (
-      <View style={[styles.container, { paddingTop: topInset, paddingBottom: insets.bottom }]}>
+      <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <StatusBar barStyle="light-content" />
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyTitle}>No Active Workout</Text>
@@ -141,93 +159,180 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
 
-      {/* 1. Dual Timers Header (has its own safe top inset) */}
-      <DualWorkoutHeader
+      {/* 1. Header Bar: Minimize chevron, elapsed clock, fraction, options, finish button & progress line */}
+      <WorkoutHeaderBar
+        workoutName={workoutName}
         elapsedSeconds={elapsedSeconds}
-        restSeconds={restTimerSeconds}
-        restTimerActive={restTimerActive}
-        isPaused={isPaused}
+        doneSets={doneSets}
+        totalSets={totalSets}
+        onMinimize={() => minimizeWorkout(true)}
         onOpenMenu={() => setMenuVisible(true)}
-        onOpenRestSheet={() => setRestSheetOpen(true)}
+        onFinish={handleFinish}
       />
 
-      {/* 2. Horizontal Exercise Carousel */}
-      <ExerciseCarousel
+      {/* 2. Horizontal Exercise Chips */}
+      <WorkoutExerciseChips
         exercises={exercises}
         activeIndex={activeExerciseIndex}
         onSelectIndex={setActiveExerciseIndex}
-        onAddExercise={() => {
-          setSwapMode(false);
-          setAddExerciseVisible(true);
-        }}
       />
 
-      {/* Main Body */}
+      {/* 3. Main Scrollable Routine Content */}
       <ScrollView
         style={styles.scrollBody}
         contentContainerStyle={{
-          paddingBottom: isKeypadOpen ? 300 : 120,
+          paddingBottom: isKeypadOpen ? 320 : 130,
         }}
         keyboardShouldPersistTaps="handled"
       >
-        {activeExercise && (
-          <View style={styles.exerciseHeader}>
-            <View style={styles.nameRow}>
-              <Text style={styles.exerciseTitle}>{activeExercise.name}</Text>
-              <View style={styles.oneRmBadge}>
-                <Text style={styles.oneRmText}>
-                  {Math.round(currentWeight * (1 + 0.0333 * (currentSet?.reps || 8)))} Lb
-                </Text>
-                <Text style={styles.oneRmSub}>Est 1RM</Text>
+        {exercises.map((ex, exIdx) => {
+          const isSelectedEx = exIdx === activeExerciseIndex;
+          const exDoneSets = ex.sets.filter(s => s.isCompleted).length;
+          const allExDone = ex.sets.length > 0 && exDoneSets === ex.sets.length;
+
+          return (
+            <View
+              key={ex.instanceId || `card_${exIdx}`}
+              style={[
+                styles.exerciseCard,
+                isSelectedEx && styles.exerciseCardActive,
+                allExDone && styles.exerciseCardDone,
+              ]}
+            >
+              {/* Exercise Card Header */}
+              <View style={styles.cardHeader}>
+                <TouchableOpacity
+                  style={styles.cardHeaderLeft}
+                  onPress={() => setActiveExerciseIndex(exIdx)}
+                  activeOpacity={0.8}
+                >
+                  <View style={[styles.exIndexBadge, isSelectedEx && styles.exIndexBadgeActive]}>
+                    <Text style={[styles.exIndexText, isSelectedEx && styles.exIndexTextActive]}>
+                      {exIdx + 1}
+                    </Text>
+                  </View>
+                  <View style={styles.exTitleCol}>
+                    <Text style={styles.exNameText} numberOfLines={1}>
+                      {ex.name}
+                    </Text>
+                    <Text style={styles.exCategoryText}>
+                      {ex.target || 'General'} · {ex.equipment || 'Standard'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                <View style={styles.cardHeaderRight}>
+                  {/* Info Icon Button */}
+                  <TouchableOpacity
+                    style={styles.cardActionIconBtn}
+                    onPress={() =>
+                      setInfoModalExercise({
+                        id: ex.exerciseId,
+                        name: ex.name,
+                        category: ex.category,
+                        target: ex.target,
+                        secondary: ex.secondary || [],
+                        equipment: ex.equipment,
+                        image: ex.image,
+                        gifUrl: ex.gifUrl,
+                        instructions: [],
+                      })
+                    }
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                      <Circle cx="12" cy="12" r="10" stroke="#9ca3af" strokeWidth="2" />
+                      <Path d="M12 16V12M12 8H12.01" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" />
+                    </Svg>
+                  </TouchableOpacity>
+
+                  {/* ⋯ Exercise Action Menu */}
+                  <TouchableOpacity
+                    style={styles.cardActionIconBtn}
+                    onPress={() => setExerciseActionMenuIdx(exIdx)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                      <Circle cx="12" cy="5" r="1.75" fill="#9ca3af" />
+                      <Circle cx="12" cy="12" r="1.75" fill="#9ca3af" />
+                      <Circle cx="12" cy="19" r="1.75" fill="#9ca3af" />
+                    </Svg>
+                  </TouchableOpacity>
+                </View>
               </View>
+
+              {/* Dynamic Exercise Notes Input */}
+              <View style={styles.notesRow}>
+                <TextInput
+                  style={styles.notesInput}
+                  placeholder="Add form cues, seat height, or tempo..."
+                  placeholderTextColor="#4b5563"
+                  value={ex.notes || ''}
+                  onChangeText={val => updateExerciseNotes(exIdx, val)}
+                  returnKeyType="done"
+                />
+              </View>
+
+              {/* Sets Logging Table */}
+              <SetLoggingTable
+                sets={ex.sets}
+                activeSetIndex={isSelectedEx ? activeSetIndex : -1}
+                activeFieldType={activeFieldType}
+                unit="Lb"
+                onFocusField={(sIdx, field) => {
+                  focusField(exIdx, sIdx, field);
+                  setIsKeypadOpen(true);
+                }}
+                onToggleComplete={sIdx => toggleSetComplete(exIdx, sIdx)}
+                onAddSet={() => addSet(exIdx, false)}
+                onAddWarmup={() => addSet(exIdx, true)}
+                onDeleteSet={sIdx => removeSet(exIdx, sIdx)}
+                onSetTypeChange={(sIdx, type: SetType) => setSetType(exIdx, sIdx, type)}
+                onIncrementField={(sIdx, field, delta) => {
+                  if (field === 'weight') {
+                    const cur = ex.sets[sIdx]?.weight || 0;
+                    updateSetWeight(exIdx, sIdx, Math.max(0, cur + delta));
+                  } else {
+                    const cur = ex.sets[sIdx]?.reps || 0;
+                    updateSetReps(exIdx, sIdx, Math.max(0, cur + delta));
+                  }
+                }}
+              />
             </View>
+          );
+        })}
 
-            <Text style={styles.setCountSub}>
-              Set {Math.min(activeSetIndex + 1, activeExercise.sets.length)} of {activeExercise.sets.length}
-            </Text>
-
-            {/* 3. Action Bar */}
-            <ExerciseActionBar
-              onOpenInfo={() => setInfoModalVisible(true)}
-              onOpenWarmUp={() => addSet(activeExerciseIndex)}
-              onOpenTargets={() => {}}
-              onOpenSwap={() => {
-                setSwapMode(true);
-                setAddExerciseVisible(true);
-              }}
-              onOpenSmartProgression={() => {}}
-            />
-
-            {/* 4. Interactive Set Logging Table */}
-            <SetLoggingTable
-              sets={activeExercise.sets}
-              activeSetIndex={activeSetIndex}
-              activeFieldType={activeFieldType}
-              onFocusField={(sIdx, field) => {
-                focusField(activeExerciseIndex, sIdx, field);
-                setIsKeypadOpen(true);
-              }}
-              onToggleComplete={sIdx => toggleSetComplete(activeExerciseIndex, sIdx)}
-              onSetTypeChange={(sIdx, type) => setSetType(activeExerciseIndex, sIdx, type)}
-              onAddSet={() => addSet(activeExerciseIndex)}
-            />
-          </View>
-        )}
+        {/* Append Exercise Button */}
+        <TouchableOpacity
+          style={styles.appendExerciseCard}
+          onPress={() => {
+            setSwapExerciseIdx(null);
+            setAddExerciseVisible(true);
+          }}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.appendExercisePlus}>＋</Text>
+          <Text style={styles.appendExerciseText}>Add Exercise</Text>
+        </TouchableOpacity>
       </ScrollView>
 
-      {/* 5. Responsive Bottom Dock: Complete Session Button + On-Demand Keypad */}
+      {/* 4. Floating Rest Timer Pill */}
+      <WorkoutRestTimerBar />
+
+      {/* 5. Responsive Bottom Dock */}
       <View style={styles.bottomDockContainer}>
-        {/* Complete Session Button (sits bottom-middle when closed, elevates on top of keypad when open) */}
-        <View style={[
-          styles.completeBtnWrapper,
-          !isKeypadOpen && { paddingBottom: Math.max(insets.bottom, 14) + 6 }
-        ]}>
+        {/* Complete Workout Button (elevates above keypad when active) */}
+        <View
+          style={[
+            styles.completeBtnWrapper,
+            !isKeypadOpen && { paddingBottom: Math.max(insets.bottom, 14) + 6 },
+          ]}
+        >
           <TouchableOpacity
             style={styles.completeWorkoutBtn}
-            onPress={handleComplete}
+            onPress={handleFinish}
             activeOpacity={0.85}
           >
-            <Text style={styles.completeWorkoutBtnIcon}>🏁</Text>
             <Text style={styles.completeWorkoutBtnText}>Complete Workout</Text>
           </TouchableOpacity>
         </View>
@@ -246,7 +351,128 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
         )}
       </View>
 
-      {/* Modals */}
+      {/* Modal: Exercise Card Actions (Swap, Reorder, Delete) */}
+      <Modal
+        visible={exerciseActionMenuIdx !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setExerciseActionMenuIdx(null)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setExerciseActionMenuIdx(null)}
+        >
+          <View style={styles.actionSheetCard}>
+            <Text style={styles.actionSheetTitle}>
+              {exerciseActionMenuIdx !== null && exercises[exerciseActionMenuIdx]
+                ? exercises[exerciseActionMenuIdx].name
+                : 'Exercise Actions'}
+            </Text>
+
+            {/* Swap */}
+            <TouchableOpacity
+              style={styles.actionSheetRow}
+              onPress={() => {
+                const targetIdx = exerciseActionMenuIdx;
+                setExerciseActionMenuIdx(null);
+                setSwapExerciseIdx(targetIdx);
+                setAddExerciseVisible(true);
+              }}
+            >
+              <Text style={styles.actionSheetIcon}>🔄</Text>
+              <Text style={styles.actionSheetText}>Swap Exercise</Text>
+            </TouchableOpacity>
+
+            {/* Move Up */}
+            {exerciseActionMenuIdx !== null && exerciseActionMenuIdx > 0 && (
+              <TouchableOpacity
+                style={styles.actionSheetRow}
+                onPress={() => {
+                  reorderExercise(exerciseActionMenuIdx, exerciseActionMenuIdx - 1);
+                  setExerciseActionMenuIdx(null);
+                }}
+              >
+                <Text style={styles.actionSheetIcon}>⬆️</Text>
+                <Text style={styles.actionSheetText}>Move Up</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Move Down */}
+            {exerciseActionMenuIdx !== null &&
+              exerciseActionMenuIdx < exercises.length - 1 && (
+                <TouchableOpacity
+                  style={styles.actionSheetRow}
+                  onPress={() => {
+                    reorderExercise(exerciseActionMenuIdx, exerciseActionMenuIdx + 1);
+                    setExerciseActionMenuIdx(null);
+                  }}
+                >
+                  <Text style={styles.actionSheetIcon}>⬇️</Text>
+                  <Text style={styles.actionSheetText}>Move Down</Text>
+                </TouchableOpacity>
+              )}
+
+            {/* Remove */}
+            {exercises.length > 1 && exerciseActionMenuIdx !== null && (
+              <TouchableOpacity
+                style={[styles.actionSheetRow, styles.actionSheetRowDanger]}
+                onPress={() => {
+                  const targetIdx = exerciseActionMenuIdx;
+                  setExerciseActionMenuIdx(null);
+                  removeExerciseFromWorkout(targetIdx);
+                }}
+              >
+                <Text style={styles.actionSheetIcon}>🗑️</Text>
+                <Text style={styles.actionSheetTextDanger}>Remove Exercise</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Modal: Rename Workout */}
+      <Modal
+        visible={renameModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRenameModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setRenameModalVisible(false)}
+        >
+          <View style={styles.actionSheetCard}>
+            <Text style={styles.actionSheetTitle}>Rename Workout</Text>
+            <TextInput
+              style={styles.renameInput}
+              value={renameText}
+              onChangeText={setRenameText}
+              placeholder="e.g. Chest & Triceps Blast"
+              placeholderTextColor="#6b7280"
+              autoFocus
+              selectTextOnFocus
+            />
+            <View style={styles.renameActionsRow}>
+              <TouchableOpacity
+                style={styles.renameCancelBtn}
+                onPress={() => setRenameModalVisible(false)}
+              >
+                <Text style={styles.renameCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.renameSaveBtn}
+                onPress={handleSaveRename}
+              >
+                <Text style={styles.renameSaveText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Sheet: Full Rest Timer Duration Control */}
       <RestTimerSheet
         visible={isRestSheetOpen}
         onClose={() => setRestSheetOpen(false)}
@@ -256,27 +482,36 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
         onStopTimer={stopRestTimer}
       />
 
+      {/* Modal: Top-Level Workout Options */}
       <WorkoutOptionMenuModal
         visible={menuVisible}
         onClose={() => setMenuVisible(false)}
         isPaused={isPaused}
         onTogglePause={isPaused ? resumeWorkout : pauseWorkout}
         onMinimize={() => minimizeWorkout(true)}
-        onComplete={handleComplete}
+        onComplete={handleFinish}
         onDiscard={handleDiscard}
+        onRename={handleOpenRename}
+        onMarkAllDone={markAllSetsDone}
+        onAddExercise={() => {
+          setSwapExerciseIdx(null);
+          setAddExerciseVisible(true);
+        }}
       />
 
+      {/* Modal: Exercise Library Browser (Add or Swap) */}
       <AddExerciseModal
         visible={addExerciseVisible}
         onClose={() => setAddExerciseVisible(false)}
         onSelectExercise={handleSelectAddOrSwap}
-        title={swapMode ? 'Swap Movement' : 'Add Exercise'}
+        title={swapExerciseIdx !== null ? 'Swap Movement' : 'Add Exercise'}
       />
 
+      {/* Modal: Exercise Info & Demo */}
       <ExerciseInfoModal
-        visible={infoModalVisible}
-        onClose={() => setInfoModalVisible(false)}
-        exercise={activeExerciseRecord}
+        visible={!!infoModalExercise}
+        onClose={() => setInfoModalExercise(null)}
+        exercise={infoModalExercise}
       />
     </View>
   );
@@ -285,53 +520,123 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#121418',
+    backgroundColor: '#0a0c10',
   },
   scrollBody: {
     flex: 1,
+    paddingHorizontal: 12,
+    paddingTop: 10,
   },
-  exerciseHeader: {
-    paddingTop: 14,
+  exerciseCard: {
+    backgroundColor: '#12141c',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#1a1f2b',
+    padding: 12,
+    marginBottom: 12,
   },
-  nameRow: {
+  exerciseCardActive: {
+    borderColor: '#22c55e44',
+  },
+  exerciseCardDone: {
+    borderColor: '#15803d44',
+  },
+  cardHeader: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    paddingHorizontal: 16,
+    paddingBottom: 8,
   },
-  exerciseTitle: {
+  cardHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
     flex: 1,
-    fontSize: 20,
-    fontWeight: '900',
-    color: '#fff',
+    marginRight: 8,
+  },
+  exIndexBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    backgroundColor: '#1a1f2b',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginRight: 10,
   },
-  oneRmBadge: {
-    backgroundColor: '#162338',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
+  exIndexBadgeActive: {
+    backgroundColor: '#142c1d',
     borderWidth: 1,
-    borderColor: '#4b88eb66',
-    alignItems: 'center',
+    borderColor: '#22c55e',
   },
-  oneRmText: {
-    color: '#7ba9f5',
-    fontWeight: '800',
+  exIndexText: {
     fontSize: 12,
+    fontWeight: '800',
+    color: '#6b7280',
   },
-  oneRmSub: {
-    color: '#4b88eb',
-    fontSize: 9,
-    fontWeight: '700',
+  exIndexTextActive: {
+    color: '#22c55e',
   },
-  setCountSub: {
-    fontSize: 13,
-    color: '#7e8695',
+  exTitleCol: {
+    flex: 1,
+  },
+  exNameText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#ffffff',
+    letterSpacing: -0.2,
+  },
+  exCategoryText: {
+    fontSize: 11,
     fontWeight: '600',
-    paddingHorizontal: 16,
-    marginTop: 2,
+    color: '#6b7280',
+    marginTop: 1,
+    textTransform: 'capitalize',
+  },
+  cardHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  cardActionIconBtn: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notesRow: {
     marginBottom: 6,
+  },
+  notesInput: {
+    backgroundColor: '#161922',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 12,
+    color: '#e5e7eb',
+    borderWidth: 1,
+    borderColor: '#202636',
+  },
+  appendExerciseCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: '#242a3a',
+    backgroundColor: '#0f1218',
+    marginBottom: 16,
+    gap: 8,
+  },
+  appendExercisePlus: {
+    fontSize: 18,
+    color: '#22c55e',
+    fontWeight: '900',
+  },
+  appendExerciseText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#ffffff',
   },
   emptyContainer: {
     flex: 1,
@@ -342,60 +647,139 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 20,
     fontWeight: '800',
-    color: '#fff',
+    color: '#ffffff',
     marginBottom: 8,
   },
   emptySub: {
     fontSize: 14,
-    color: '#767d8a',
+    color: '#6b7280',
     textAlign: 'center',
     marginBottom: 20,
   },
   emptyCloseBtn: {
-    backgroundColor: '#222733',
+    backgroundColor: '#161922',
     paddingHorizontal: 20,
     paddingVertical: 12,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#343c4e',
+    borderColor: '#242a3a',
   },
   emptyCloseText: {
-    color: '#fff',
+    color: '#ffffff',
     fontWeight: '700',
     fontSize: 14,
   },
   bottomDockContainer: {
-    backgroundColor: '#121418',
+    backgroundColor: '#0e1017',
     borderTopWidth: 1,
-    borderTopColor: '#1d212b',
+    borderTopColor: '#1a1f2b',
   },
   completeBtnWrapper: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingTop: 10,
-    alignItems: 'center',
   },
   completeWorkoutBtn: {
-    width: '100%',
-    backgroundColor: '#3b82f6',
-    flexDirection: 'row',
+    backgroundColor: '#22c55e',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 14,
-    borderRadius: 14,
-    shadowColor: '#3b82f6',
+    borderRadius: 16,
+    shadowColor: '#22c55e',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35,
     shadowRadius: 8,
-    elevation: 4,
-  },
-  completeWorkoutBtnIcon: {
-    fontSize: 16,
-    marginRight: 8,
+    elevation: 6,
   },
   completeWorkoutBtnText: {
-    color: '#ffffff',
+    color: '#000000',
     fontSize: 16,
     fontWeight: '900',
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  actionSheetCard: {
+    width: '100%',
+    maxWidth: 320,
+    backgroundColor: '#161922',
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#242a3a',
+  },
+  actionSheetTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#ffffff',
+    marginBottom: 12,
+  },
+  actionSheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#202636',
+    gap: 12,
+  },
+  actionSheetRowDanger: {
+    borderBottomWidth: 0,
+  },
+  actionSheetIcon: {
+    fontSize: 18,
+    width: 24,
+  },
+  actionSheetText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#e5e7eb',
+  },
+  actionSheetTextDanger: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#ef4444',
+  },
+  renameInput: {
+    backgroundColor: '#0f1118',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#242a3a',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    color: '#ffffff',
+    fontSize: 15,
+    marginBottom: 16,
+  },
+  renameActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  renameCancelBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+  },
+  renameCancelText: {
+    color: '#9ca3af',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  renameSaveBtn: {
+    backgroundColor: '#22c55e',
+    paddingVertical: 8,
+    paddingHorizontal: 18,
+    borderRadius: 10,
+  },
+  renameSaveText: {
+    color: '#000000',
+    fontWeight: '800',
+    fontSize: 14,
   },
 });
+
+export default ActiveWorkoutScreen;

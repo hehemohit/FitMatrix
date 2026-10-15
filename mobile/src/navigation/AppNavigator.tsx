@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, StyleSheet } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Modal, StyleSheet } from 'react-native';
 import { DashboardScreen } from '../screens/DashboardScreen';
 import { FoodLogScreen } from '../screens/FoodLogScreen';
 import { StrategyScreen } from '../screens/StrategyScreen';
@@ -12,6 +12,7 @@ import { WeighInModal } from '../components/macrofactor/WeighInModal';
 import { ActiveWorkoutScreen } from '../screens/workout/ActiveWorkoutScreen';
 import { WorkoutCompleteScreen } from '../screens/workout/WorkoutCompleteScreen';
 import { WorkoutNavigator } from '../screens/workout/WorkoutNavigator';
+import { WorkoutMiniDock } from '../components/workout/WorkoutMiniDock';
 import { useTrainerStore } from '../store/useTrainerStore';
 import { useWorkoutSessionStore, WorkoutSummaryData } from '../store/useWorkoutSessionStore';
 import { useExerciseLibraryStore } from '../store/useExerciseLibraryStore';
@@ -23,9 +24,8 @@ export const AppNavigator: React.FC = () => {
   const {
     isActive,
     isMinimized,
-    elapsedSeconds,
-    exercises,
-    activeExerciseIndex,
+    isPaused,
+    tickWorkoutTimer,
     startWorkout,
     minimizeWorkout,
   } = useWorkoutSessionStore();
@@ -38,6 +38,16 @@ export const AppNavigator: React.FC = () => {
   const [weighInModalVisible, setWeighInModalVisible] = useState(false);
   const [workoutDashboardVisible, setWorkoutDashboardVisible] = useState(false);
   const [completedSummary, setCompletedSummary] = useState<WorkoutSummaryData | null>(null);
+
+  // Global workout elapsed & rest ticker interval that survives screen minimization
+  useEffect(() => {
+    if (!isActive || isPaused) return;
+    tickWorkoutTimer();
+    const iv = setInterval(() => {
+      tickWorkoutTimer();
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [isActive, isPaused, tickWorkoutTimer]);
 
   const handleSelectQuickAction = (action: 'meal' | 'weight' | 'workout') => {
     if (action === 'meal') {
@@ -54,12 +64,6 @@ export const AppNavigator: React.FC = () => {
     }
   };
 
-  const formatElapsed = (sec: number) => {
-    const mins = Math.floor(sec / 60);
-    const secs = sec % 60;
-    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
-  };
-
   const screens = React.useMemo(
     () => [
       <DashboardScreen key="dashboard-screen" />,
@@ -69,8 +73,6 @@ export const AppNavigator: React.FC = () => {
     ],
     []
   );
-
-  const currentExercise = exercises[activeExerciseIndex];
 
   return (
     <View style={styles.container}>
@@ -99,23 +101,8 @@ export const AppNavigator: React.FC = () => {
         </>
       )}
 
-      {/* Floating Minimized Workout Banner */}
-      {isActive && isMinimized && (
-        <TouchableOpacity
-          style={styles.minimizedBanner}
-          onPress={() => minimizeWorkout(false)}
-          activeOpacity={0.85}
-        >
-          <View style={styles.miniLeft}>
-            <View style={styles.miniDot} />
-            <Text style={styles.miniTimer}>{formatElapsed(elapsedSeconds)}</Text>
-            <Text style={styles.miniExercise} numberOfLines={1}>
-              {currentExercise ? currentExercise.name : 'Workout in progress'}
-            </Text>
-          </View>
-          <Text style={styles.miniResumeText}>Resume ➔</Text>
-        </TouchableOpacity>
-      )}
+      {/* Floating Minimized Workout Dock */}
+      <WorkoutMiniDock />
 
       {/* Floating Center (+) Action Sheet */}
       <QuickActionModal
@@ -175,58 +162,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.appDark,
-  },
-  minimizedBanner: {
-    position: 'absolute',
-    bottom: 78,
-    left: 12,
-    right: 12,
-    borderRadius: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#161922',
-    borderWidth: 1,
-    borderColor: '#f59e0b',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    elevation: 25,
-    zIndex: 999,
-    shadowColor: '#f59e0b',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.35,
-    shadowRadius: 6,
-  },
-  miniLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    marginRight: 12,
-  },
-  miniDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#4b88eb',
-    marginRight: 8,
-  },
-  miniTimer: {
-    color: '#7ba9f5',
-    fontWeight: '800',
-    fontSize: 13,
-    fontVariant: ['tabular-nums'],
-    marginRight: 10,
-  },
-  miniExercise: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 13,
-    flex: 1,
-  },
-  miniResumeText: {
-    color: '#4b88eb',
-    fontWeight: '800',
-    fontSize: 12,
   },
 });
 

@@ -120,6 +120,7 @@ export const DashboardScreen: React.FC = () => {
           </View>
           <TouchableOpacity
             style={styles.switchDashboardBtn}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             onPress={() => useDashboardTabStore.getState().setActiveDashboard('workout')}
             activeOpacity={0.8}
           >

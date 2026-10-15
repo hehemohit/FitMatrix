@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
+  Modal,
 } from 'react-native';
 import { LoggedSet, SetType } from '../../store/useWorkoutSessionStore';
 
@@ -15,8 +16,10 @@ interface SetLoggingTableProps {
   onFocusField: (setIdx: number, field: 'weight' | 'reps') => void;
   onToggleComplete: (setIdx: number) => void;
   onAddSet: () => void;
+  onAddWarmup?: () => void;
   onDeleteSet?: (setIdx: number) => void;
   onSetTypeChange?: (setIdx: number, type: SetType) => void;
+  onIncrementField?: (setIdx: number, field: 'weight' | 'reps', delta: number) => void;
 }
 
 export const SetLoggingTable: React.FC<SetLoggingTableProps> = ({
@@ -27,24 +30,36 @@ export const SetLoggingTable: React.FC<SetLoggingTableProps> = ({
   onFocusField,
   onToggleComplete,
   onAddSet,
+  onAddWarmup,
+  onDeleteSet,
   onSetTypeChange,
+  onIncrementField,
 }) => {
-  const handleCycleType = (idx: number, currentType: SetType = 'normal') => {
-    if (!onSetTypeChange) return;
-    const types: SetType[] = ['normal', 'warmup', 'drop', 'failure'];
-    const nextIdx = (types.indexOf(currentType) + 1) % types.length;
-    onSetTypeChange(idx, types[nextIdx]);
+  const [selectedSetForMenu, setSelectedSetForMenu] = useState<number | null>(null);
+
+  const handleSelectSetType = (type: SetType) => {
+    if (selectedSetForMenu !== null && onSetTypeChange) {
+      onSetTypeChange(selectedSetForMenu, type);
+    }
+    setSelectedSetForMenu(null);
+  };
+
+  const handleDeleteCurrentSet = () => {
+    if (selectedSetForMenu !== null && onDeleteSet) {
+      onDeleteSet(selectedSetForMenu);
+    }
+    setSelectedSetForMenu(null);
   };
 
   return (
     <View style={styles.container}>
-      {/* Table Header */}
+      {/* Table Header Row matching reference */}
       <View style={styles.headerRow}>
-        <Text style={[styles.headerCell, { width: 38, textAlign: 'center' }]}>Set</Text>
-        <Text style={[styles.headerCell, { flex: 1.2 }]}>Previous / Target</Text>
-        <Text style={[styles.headerCell, { width: 70, textAlign: 'center' }]}>{unit}</Text>
-        <Text style={[styles.headerCell, { width: 70, textAlign: 'center' }]}>Reps</Text>
-        <Text style={[styles.headerCell, { width: 44, textAlign: 'center' }]}>✓</Text>
+        <Text style={[styles.headerCell, styles.colSet]}>SET</Text>
+        <Text style={[styles.headerCell, styles.colPrev]}>PREV</Text>
+        <Text style={[styles.headerCell, styles.colInput]}>{unit.toUpperCase()}</Text>
+        <Text style={[styles.headerCell, styles.colInput]}>REPS</Text>
+        <Text style={[styles.headerCell, styles.colCheck]}>✓</Text>
       </View>
 
       {/* Set Rows */}
@@ -66,7 +81,7 @@ export const SetLoggingTable: React.FC<SetLoggingTableProps> = ({
             key={`set_${s.setNumber}_${idx}`}
             style={[styles.row, s.isCompleted && styles.rowCompleted]}
           >
-            {/* Set Number / Type Circle (Tap to cycle: Work -> Warmup -> Drop -> Failure) */}
+            {/* Set Pill (Tap to open set options menu) */}
             <TouchableOpacity
               style={[
                 styles.setCircle,
@@ -75,7 +90,7 @@ export const SetLoggingTable: React.FC<SetLoggingTableProps> = ({
                 setType === 'failure' && styles.setCircleFailure,
                 s.isCompleted && styles.setCircleCompleted,
               ]}
-              onPress={() => handleCycleType(idx, setType)}
+              onPress={() => setSelectedSetForMenu(idx)}
               activeOpacity={0.7}
             >
               <Text
@@ -91,128 +106,245 @@ export const SetLoggingTable: React.FC<SetLoggingTableProps> = ({
               </Text>
             </TouchableOpacity>
 
-            {/* Target / Previous Performance (Ghost info) */}
-            <View style={styles.targetCol}>
-              {s.previousPerformance ? (
-                <Text style={styles.previousGhostText} numberOfLines={1}>
-                  Last: {s.previousPerformance}
-                </Text>
-              ) : null}
-              <Text style={styles.targetText} numberOfLines={1}>
-                {s.targetReps || '8-10 reps'}
-                {s.targetRir !== undefined ? ` • ${s.targetRir} RIR` : ''}
+            {/* Previous Session Performance */}
+            <View style={styles.prevCol}>
+              <Text style={styles.previousGhostText} numberOfLines={1}>
+                {s.previousPerformance || '—'}
               </Text>
             </View>
 
-            {/* Weight Input Box */}
-            <TouchableOpacity
-              style={[styles.inputPill, isWeightFocused && styles.inputPillFocused]}
-              onPress={() => onFocusField(idx, 'weight')}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.inputText, isWeightFocused && styles.inputTextFocused]}>
-                {s.weight > 0 ? s.weight : '-'}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Reps Input Box */}
-            <TouchableOpacity
-              style={[styles.inputPill, isRepsFocused && styles.inputPillFocused]}
-              onPress={() => onFocusField(idx, 'reps')}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.inputText, isRepsFocused && styles.inputTextFocused]}>
-                {s.reps > 0 ? s.reps : '-'}
-              </Text>
-
-              {/* RIR indicator bubble if specified */}
-              {s.targetRir !== undefined && (
-                <View style={[styles.rirBubble, { backgroundColor: s.targetRir <= 1 ? '#e74c3c' : '#f39c12' }]}>
-                  <Text style={styles.rirBubbleText}>{s.targetRir}</Text>
-                </View>
+            {/* Weight Input Box with quick steppers */}
+            <View style={styles.stepperContainer}>
+              {onIncrementField && (
+                <TouchableOpacity
+                  style={styles.stepBtn}
+                  onPress={() => onIncrementField(idx, 'weight', -5)}
+                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                >
+                  <Text style={styles.stepBtnText}>−</Text>
+                </TouchableOpacity>
               )}
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.inputPill, isWeightFocused && styles.inputPillFocused]}
+                onPress={() => onFocusField(idx, 'weight')}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.inputText, isWeightFocused && styles.inputTextFocused]}>
+                  {s.weight > 0 ? s.weight : '—'}
+                </Text>
+              </TouchableOpacity>
+              {onIncrementField && (
+                <TouchableOpacity
+                  style={styles.stepBtn}
+                  onPress={() => onIncrementField(idx, 'weight', 5)}
+                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                >
+                  <Text style={styles.stepBtnText}>+</Text>
+                </TouchableOpacity>
+              )}
+            </View>
 
-            {/* Completion Checkbox */}
+            {/* Reps Input Box with quick steppers */}
+            <View style={styles.stepperContainer}>
+              {onIncrementField && (
+                <TouchableOpacity
+                  style={styles.stepBtn}
+                  onPress={() => onIncrementField(idx, 'reps', -1)}
+                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                >
+                  <Text style={styles.stepBtnText}>−</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={[styles.inputPill, isRepsFocused && styles.inputPillFocused]}
+                onPress={() => onFocusField(idx, 'reps')}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.inputText, isRepsFocused && styles.inputTextFocused]}>
+                  {s.reps > 0 ? s.reps : '—'}
+                </Text>
+              </TouchableOpacity>
+              {onIncrementField && (
+                <TouchableOpacity
+                  style={styles.stepBtn}
+                  onPress={() => onIncrementField(idx, 'reps', 1)}
+                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                >
+                  <Text style={styles.stepBtnText}>+</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Completion Checkmark Button */}
             <TouchableOpacity
               style={[styles.checkbox, s.isCompleted && styles.checkboxCompleted]}
               onPress={() => onToggleComplete(idx)}
-              activeOpacity={0.6}
+              activeOpacity={0.7}
             >
-              {s.isCompleted && <Text style={styles.checkmarkIcon}>✓</Text>}
+              <Text style={[styles.checkmarkIcon, s.isCompleted && styles.checkmarkIconCompleted]}>
+                ✓
+              </Text>
             </TouchableOpacity>
           </View>
         );
       })}
 
-      {/* Add Set Row Button */}
-      <TouchableOpacity style={styles.addSetRow} onPress={onAddSet} activeOpacity={0.7}>
-        <Text style={styles.addSetPlus}>+</Text>
-        <Text style={styles.addSetText}>Add Set</Text>
-      </TouchableOpacity>
+      {/* Action Buttons Row */}
+      <View style={styles.footerActions}>
+        <TouchableOpacity style={styles.addSetBtn} onPress={onAddSet} activeOpacity={0.7}>
+          <Text style={styles.addSetBtnText}>+ Add set</Text>
+        </TouchableOpacity>
+
+        {onAddWarmup && (
+          <TouchableOpacity style={styles.addWarmupBtn} onPress={onAddWarmup} activeOpacity={0.7}>
+            <Text style={styles.addWarmupBtnText}>+ Warm-up</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Set Options Modal Sheet */}
+      <Modal
+        visible={selectedSetForMenu !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedSetForMenu(null)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setSelectedSetForMenu(null)}
+        >
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>
+              Set {selectedSetForMenu !== null ? selectedSetForMenu + 1 : ''} Options
+            </Text>
+
+            <TouchableOpacity
+              style={styles.menuOption}
+              onPress={() => handleSelectSetType('normal')}
+            >
+              <Text style={styles.menuOptionText}>Working Set</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.menuOption}
+              onPress={() => handleSelectSetType('warmup')}
+            >
+              <Text style={styles.menuOptionText}>Warm-up Set (W)</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.menuOption}
+              onPress={() => handleSelectSetType('drop')}
+            >
+              <Text style={styles.menuOptionText}>Drop Set (D)</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.menuOption}
+              onPress={() => handleSelectSetType('failure')}
+            >
+              <Text style={styles.menuOptionText}>Failure Set (F)</Text>
+            </TouchableOpacity>
+
+            {sets.length > 1 && (
+              <TouchableOpacity
+                style={[styles.menuOption, styles.menuOptionDanger]}
+                onPress={handleDeleteCurrentSet}
+              >
+                <Text style={styles.menuOptionTextDanger}>Delete Set</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#121418',
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 16,
+    backgroundColor: '#12141c',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 14,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#1f2433',
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#20232a',
+    borderBottomColor: '#202636',
   },
   headerCell: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#767e8c',
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#6b7280',
+    letterSpacing: 0.5,
+  },
+  colSet: {
+    width: 34,
+    textAlign: 'center',
+  },
+  colPrev: {
+    flex: 1.1,
+    paddingLeft: 6,
+  },
+  colInput: {
+    width: 72,
+    textAlign: 'center',
+  },
+  colCheck: {
+    width: 40,
+    textAlign: 'center',
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 7,
     borderBottomWidth: 1,
-    borderBottomColor: '#1a1d24',
+    borderBottomColor: '#181c28',
   },
   rowCompleted: {
-    opacity: 0.85,
+    opacity: 0.9,
   },
   setCircle: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#20232b',
+    backgroundColor: '#1c202d',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 8,
   },
   setCircleCompleted: {
-    backgroundColor: '#1b3323',
+    backgroundColor: '#142c1d',
+    borderWidth: 1,
+    borderColor: '#22c55e',
   },
   setText: {
     fontSize: 12,
-    fontWeight: '700',
-    color: '#8b93a2',
+    fontWeight: '800',
+    color: '#9ca3af',
   },
   setTextCompleted: {
-    color: '#4cd964',
+    color: '#4ade80',
   },
   setCircleWarmup: {
-    backgroundColor: '#3b2812',
-    borderColor: '#d97706',
+    backgroundColor: '#38260d',
+    borderWidth: 1,
+    borderColor: '#eab308',
   },
   setTextWarmup: {
-    color: '#fbbf24',
+    color: '#facc15',
     fontWeight: '900',
   },
   setCircleDrop: {
-    backgroundColor: '#321945',
+    backgroundColor: '#301844',
+    borderWidth: 1,
     borderColor: '#a855f7',
   },
   setTextDrop: {
@@ -220,104 +352,156 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   setCircleFailure: {
-    backgroundColor: '#40151c',
+    backgroundColor: '#3b1313',
+    borderWidth: 1,
     borderColor: '#ef4444',
   },
   setTextFailure: {
     color: '#f87171',
     fontWeight: '900',
   },
-  targetCol: {
-    flex: 1.2,
+  prevCol: {
+    flex: 1.1,
+    paddingLeft: 6,
   },
   previousGhostText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#60a5fa',
-    marginBottom: 1,
-  },
-  targetText: {
-    fontSize: 11,
+    fontSize: 13,
+    color: '#6b7280',
     fontWeight: '600',
-    color: '#818a99',
   },
-  rirText: {
-    fontSize: 10,
-    color: '#656b78',
-    marginTop: 1,
+  stepperContainer: {
+    width: 72,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepBtn: {
+    paddingHorizontal: 2,
+    paddingVertical: 4,
+  },
+  stepBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#4b5563',
   },
   inputPill: {
-    width: 70,
-    height: 38,
-    backgroundColor: '#1d2028',
+    backgroundColor: '#161922',
+    paddingVertical: 6,
+    paddingHorizontal: 8,
     borderRadius: 8,
+    minWidth: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    marginHorizontal: 4,
-    borderWidth: 1.5,
-    borderColor: '#262a34',
+    borderWidth: 1,
+    borderColor: '#242a3a',
   },
   inputPillFocused: {
-    borderColor: '#4b88eb',
-    backgroundColor: '#19263a',
+    borderColor: '#22c55e',
+    backgroundColor: '#102217',
   },
   inputText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '700',
-    color: '#fff',
+    color: '#ffffff',
+    fontVariant: ['tabular-nums'],
   },
   inputTextFocused: {
-    color: '#7ba9f5',
-  },
-  rirBubble: {
-    position: 'absolute',
-    bottom: -3,
-    right: -3,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rirBubbleText: {
-    color: '#fff',
-    fontSize: 8,
-    fontWeight: '900',
+    color: '#4ade80',
   },
   checkbox: {
     width: 32,
     height: 32,
     borderRadius: 8,
-    borderWidth: 1.5,
-    borderColor: '#393f4e',
-    backgroundColor: '#181b22',
+    backgroundColor: '#1a1e2b',
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 6,
+    borderWidth: 1,
+    borderColor: '#2e3648',
   },
   checkboxCompleted: {
-    backgroundColor: '#27ae60',
-    borderColor: '#2ecc71',
+    backgroundColor: '#22c55e',
+    borderColor: '#22c55e',
   },
   checkmarkIcon: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: '900',
+    color: '#4b5563',
   },
-  addSetRow: {
+  checkmarkIconCompleted: {
+    color: '#000000',
+  },
+  footerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    gap: 8,
+    gap: 12,
+    marginTop: 12,
   },
-  addSetPlus: {
-    fontSize: 18,
-    color: '#4b88eb',
-    fontWeight: '800',
+  addSetBtn: {
+    backgroundColor: '#1b202d',
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#293044',
   },
-  addSetText: {
+  addSetBtnText: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#4b88eb',
+    color: '#ffffff',
+  },
+  addWarmupBtn: {
+    backgroundColor: 'transparent',
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+  },
+  addWarmupBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#9ca3af',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 320,
+    backgroundColor: '#161922',
+    borderRadius: 18,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#242a3a',
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#ffffff',
+    marginBottom: 14,
+  },
+  menuOption: {
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#202636',
+  },
+  menuOptionText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#e5e7eb',
+  },
+  menuOptionDanger: {
+    borderBottomWidth: 0,
+    marginTop: 4,
+  },
+  menuOptionTextDanger: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#ef4444',
   },
 });
+
+export default SetLoggingTable;

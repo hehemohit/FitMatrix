@@ -62,12 +62,13 @@ export const TopFadeOverlay: React.FC<TopFadeOverlayProps> = ({
   return (
     <View style={styles.container} pointerEvents="none">
       {/* Solid background covering the status bar */}
-      <View style={{ height: statusBarHeight, backgroundColor: baseColor }} />
+      <View style={{ height: statusBarHeight, backgroundColor: baseColor }} pointerEvents="none" />
 
       {/* Contiguous gradient fade slices */}
       {slices.map(slice => (
         <View
           key={slice.key}
+          pointerEvents="none"
           style={{
             height: slice.height,
             backgroundColor: baseColor,
@@ -85,6 +86,6 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    zIndex: 999,
+    // pointerEvents none ensures touches pass completely through
   },
 });
