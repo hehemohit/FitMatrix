@@ -1,14 +1,41 @@
 import os
 import re
+import io
+import base64
+import hashlib
+import json
 import logging
 import httpx
 from typing import Optional, List, Literal
+from PIL import Image, ImageOps
+import redis
 from pydantic import BaseModel, Field
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from app.models.documents import CustomBarcodeDocument
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# ─── Redis Caching Setup ──────────────────────────────────────────────────────
+_redis_client = None
+
+def get_redis_client():
+    global _redis_client
+    if _redis_client is None:
+        try:
+            _redis_client = redis.from_url(
+                settings.REDIS_URL,
+                decode_responses=True,
+                socket_timeout=1.5,
+                socket_connect_timeout=1.5,
+            )
+            _redis_client.ping()
+            logger.info("[nutrition_scanner] Redis cache connected successfully")
+        except Exception as e:
+            logger.info(f"[nutrition_scanner] Redis cache not available ({e}), proceeding without caching")
+            _redis_client = False
+    return _redis_client if _redis_client is not False else None
 
 # ─── Pydantic Schemas ─────────────────────────────────────────────────────────
 
@@ -201,11 +228,79 @@ Mandatory Guidelines:
 5. Reasoning Note: Provide a 1-sentence note stating assumed scale reference and potential variance so the athlete can calibrate grams.
 """
 
-async def analyze_food_photo(image_base64: str, meal_hint: Optional[str] = None) -> dict:
-    # Ensure clean data URI format
-    clean_b64 = image_base64.strip()
-    if not clean_b64.startswith("data:"):
-        clean_b64 = f"data:image/jpeg;base64,{clean_b64}"
+def preprocess_meal_image(raw_bytes: bytes, max_dim: int = 768, quality: int = 70) -> tuple[bytes, str]:
+    """
+    Normalizes, auto-orients based on EXIF, resizes to max_dim (preserving aspect ratio),
+    and compresses to an optimized JPEG.
+    Returns (optimized_jpeg_bytes, clean_data_uri).
+    """
+    try:
+        with Image.open(io.BytesIO(raw_bytes)) as img:
+            # Auto-orient based on camera EXIF tags
+            img = ImageOps.exif_transpose(img)
+
+            # Convert palette/transparency to RGB
+            if img.mode in ("RGBA", "LA", "P"):
+                bg = Image.new("RGB", img.size, (255, 255, 255))
+                if img.mode == "P":
+                    img = img.convert("RGBA")
+                bg.paste(img, mask=img.split()[-1] if "A" in img.mode else None)
+                img = bg
+            elif img.mode != "RGB":
+                img = img.convert("RGB")
+
+            # Resize if either dimension exceeds max_dim
+            if max(img.width, img.height) > max_dim:
+                img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+
+            out_buf = io.BytesIO()
+            img.save(out_buf, format="JPEG", quality=quality, optimize=True)
+            optimized_bytes = out_buf.getvalue()
+            b64_str = base64.b64encode(optimized_bytes).decode("utf-8")
+            return optimized_bytes, f"data:image/jpeg;base64,{b64_str}"
+    except Exception as e:
+        logger.warning(f"[preprocess_meal_image] PIL processing fallback: {e}")
+        b64_str = base64.b64encode(raw_bytes).decode("utf-8")
+        return raw_bytes, f"data:image/jpeg;base64,{b64_str}"
+
+
+async def analyze_food_photo(
+    image_bytes: Optional[bytes] = None,
+    image_base64: Optional[str] = None,
+    meal_hint: Optional[str] = None,
+) -> dict:
+    if not image_bytes and not image_base64:
+        raise ValueError("Either image_bytes or image_base64 must be provided")
+
+    # Extract raw bytes
+    if image_bytes:
+        raw_bytes = image_bytes
+    else:
+        # Base64 string decode
+        clean_str = image_base64.strip()
+        if clean_str.startswith("data:"):
+            clean_str = clean_str.split(",", 1)[-1]
+        raw_bytes = base64.b64decode(clean_str)
+
+    # Preprocess & normalize image (resize to max 768px, fix orientation, optimize JPEG)
+    optimized_bytes, clean_b64 = preprocess_meal_image(raw_bytes, max_dim=768, quality=70)
+
+    # Check Redis cache for instant duplicate/retry hit
+    norm_hint = (meal_hint or "").strip().lower()
+    cache_hash = hashlib.sha256(optimized_bytes + norm_hint.encode("utf-8")).hexdigest()
+    cache_key = f"vision_cache:{cache_hash}"
+
+    redis_cli = get_redis_client()
+    if redis_cli:
+        try:
+            cached_val = redis_cli.get(cache_key)
+            if cached_val:
+                logger.info(f"[analyze_food_photo] Cache HIT for key {cache_key}")
+                data = json.loads(cached_val)
+                data["from_cache"] = True
+                return data
+        except Exception as e:
+            logger.warning(f"[analyze_food_photo] Redis get error: {e}")
 
     google_api_key = os.getenv("GOOGLE_API_KEY")
     if not google_api_key:
@@ -221,7 +316,7 @@ async def analyze_food_photo(image_base64: str, meal_hint: Optional[str] = None)
 
     user_text = "Identify all food items in this photo, estimate portions in grams, and calculate total calories and macros."
     if meal_hint:
-        user_text += f" User note/context: {meal_hint}"
+        user_text += f" User note/context: {meal_hint.strip()}"
 
     message_content = [
         {"type": "text", "text": user_text},
@@ -236,7 +331,18 @@ async def analyze_food_photo(image_base64: str, meal_hint: Optional[str] = None)
             SystemMessage(content=VISION_SYSTEM_PROMPT),
             HumanMessage(content=message_content),
         ])
-        return result.model_dump()
+        output_data = result.model_dump()
+        output_data["from_cache"] = False
+
+        # Store in Redis with 24-hour TTL (86,400s)
+        if redis_cli:
+            try:
+                redis_cli.setex(cache_key, 86400, json.dumps(output_data))
+                logger.info(f"[analyze_food_photo] Cached result for key {cache_key}")
+            except Exception as e:
+                logger.warning(f"[analyze_food_photo] Redis setex error: {e}")
+
+        return output_data
     except Exception as e:
         logger.error(f"[analyze_food_photo] Gemini Vision analysis failed: {e}")
         raise

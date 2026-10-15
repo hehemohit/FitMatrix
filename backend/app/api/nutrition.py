@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel
 from typing import Optional
 from app.services.nutrition_scanner import (
@@ -11,7 +11,7 @@ from app.services.nutrition_scanner import (
 router = APIRouter(prefix="/api/v1/nutrition", tags=["Nutrition Scanner & Vision"])
 
 class VisionEstimateRequest(BaseModel):
-    image_base64: str
+    image_base64: Optional[str] = None
     meal_hint: Optional[str] = None
 
 @router.get("/barcode/{barcode}")
@@ -40,17 +40,50 @@ async def post_custom_barcode(payload: CustomBarcodePayload):
         raise HTTPException(status_code=500, detail=f"Failed to save custom barcode: {str(e)}")
 
 @router.post("/vision-estimate")
-async def post_vision_estimate(payload: VisionEstimateRequest):
+async def post_vision_estimate(request: Request):
     """
-    Analyzes a meal photo using Google Gemini Multimodal Vision.
-    Identifies constituents, estimates portion weights, and returns
-    calories, protein, carbs, fats, confidence ('high'|'medium'|'low'),
-    and reasoning notes on assumed tableware scale.
+    Analyzes a meal photo using Google Gemini Multimodal Vision with automatic EXIF
+    normalization, thumbnail compression, and Redis caching.
+    Supports:
+    1. High-speed binary multipart/form-data upload (field 'file' + optional 'meal_hint').
+    2. Backward-compatible JSON body ({"image_base64": "...", "meal_hint": "..."}).
     """
     try:
-        if not payload.image_base64:
-            raise HTTPException(status_code=400, detail="image_base64 is required")
-        analysis = await analyze_food_photo(payload.image_base64, payload.meal_hint)
+        content_type = request.headers.get("content-type", "")
+        image_bytes: Optional[bytes] = None
+        image_base64: Optional[str] = None
+        meal_hint: Optional[str] = None
+
+        if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
+            form = await request.form()
+            file = form.get("file")
+            raw_hint = form.get("meal_hint")
+            meal_hint = str(raw_hint) if raw_hint else None
+            
+            if file and hasattr(file, "read"):
+                image_bytes = await file.read()
+            elif "image_base64" in form:
+                image_base64 = str(form.get("image_base64"))
+        else:
+            # JSON payload fallback
+            body = await request.json()
+            image_base64 = body.get("image_base64")
+            meal_hint = body.get("meal_hint")
+
+        if not image_bytes and not image_base64:
+            raise HTTPException(
+                status_code=400,
+                detail="Either 'file' (multipart upload) or 'image_base64' (JSON) must be provided."
+            )
+
+        analysis = await analyze_food_photo(
+            image_bytes=image_bytes,
+            image_base64=image_base64,
+            meal_hint=meal_hint,
+        )
         return analysis
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Vision estimation failed: {str(e)}")
+

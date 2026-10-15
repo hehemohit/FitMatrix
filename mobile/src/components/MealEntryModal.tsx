@@ -34,6 +34,7 @@ import {
   estimateMealMacros,
   fetchBarcodeNutrition,
   estimateVisionMealMacros,
+  MealImageUpload,
   BarcodeProduct,
   VisionEstimateResponse,
 } from '../api/coachApi';
@@ -97,9 +98,10 @@ export const MealEntryModal: React.FC<MealEntryModalProps> = ({
 
   // ── Mode 2: Vision Photo State ──────────────────────────────────────────────
   const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
-  const [selectedImageBase64, setSelectedImageBase64] = useState<string | null>(null);
+  const [selectedImageAsset, setSelectedImageAsset] = useState<MealImageUpload | null>(null);
   const [mealHint, setMealHint] = useState('');
   const [visionLoading, setVisionLoading] = useState(false);
+  const [visionStage, setVisionStage] = useState('');
   const [visionError, setVisionError] = useState('');
   const [visionReview, setVisionReview] = useState<VisionEstimateResponse | null>(null);
 
@@ -127,9 +129,10 @@ export const MealEntryModal: React.FC<MealEntryModalProps> = ({
     setStep('describe');
 
     setSelectedImageUri(null);
-    setSelectedImageBase64(null);
+    setSelectedImageAsset(null);
     setMealHint('');
     setVisionLoading(false);
+    setVisionStage('');
     setVisionError('');
     setVisionReview(null);
 
@@ -289,10 +292,10 @@ export const MealEntryModal: React.FC<MealEntryModalProps> = ({
     try {
       const options = {
         mediaType: 'photo' as const,
-        includeBase64: true,
-        quality: 0.8 as const,
-        maxWidth: 1024,
-        maxHeight: 1024,
+        includeBase64: false, // Stream direct from disk to avoid high JS memory usage
+        quality: 0.7 as const, // Optimal compression for Gemini vision single-tile
+        maxWidth: 768,          // Gemini vision tile dimension
+        maxHeight: 768,
       };
 
       const result = type === 'camera'
@@ -324,9 +327,11 @@ export const MealEntryModal: React.FC<MealEntryModalProps> = ({
         const asset = result.assets[0];
         if (asset.uri) {
           setSelectedImageUri(asset.uri);
-        }
-        if (asset.base64) {
-          setSelectedImageBase64(asset.base64);
+          setSelectedImageAsset({
+            uri: asset.uri,
+            type: asset.type || 'image/jpeg',
+            fileName: asset.fileName || 'meal.jpg',
+          });
         }
       }
     } catch (err: any) {
@@ -336,23 +341,35 @@ export const MealEntryModal: React.FC<MealEntryModalProps> = ({
   };
 
   const handleAnalyzeVisionPhoto = async () => {
-    if (!selectedImageBase64) {
+    if (!selectedImageAsset || !selectedImageUri) {
       shake();
       setVisionError('Please snap a photo or choose an image first.');
       return;
     }
     setVisionLoading(true);
+    setVisionStage('Optimizing & uploading image...');
     setVisionError('');
     Keyboard.dismiss();
 
+    const timer1 = setTimeout(() => {
+      setVisionStage('Decomposing ingredients with Gemini...');
+    }, 1200);
+
+    const timer2 = setTimeout(() => {
+      setVisionStage('Calculating macros & plate scale...');
+    }, 2800);
+
     try {
-      const res = await estimateVisionMealMacros(selectedImageBase64, mealHint.trim() || undefined);
+      const res = await estimateVisionMealMacros(selectedImageAsset, mealHint.trim() || undefined);
       setVisionReview(res);
     } catch (err: any) {
       console.warn('[handleAnalyzeVisionPhoto] Vision error:', err);
       setVisionError('AI Vision analysis failed. Please check internet connection or enter manually.');
     } finally {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
       setVisionLoading(false);
+      setVisionStage('');
     }
   };
 
@@ -572,7 +589,7 @@ export const MealEntryModal: React.FC<MealEntryModalProps> = ({
         {selectedImageUri && (
           <View style={styles.previewBox}>
             <Image source={{ uri: selectedImageUri }} style={styles.previewImg} />
-            <TouchableOpacity style={styles.clearImgBtn} onPress={() => { setSelectedImageUri(null); setSelectedImageBase64(null); }}>
+            <TouchableOpacity style={styles.clearImgBtn} onPress={() => { setSelectedImageUri(null); setSelectedImageAsset(null); }}>
               <Text style={styles.clearImgText}>✕</Text>
             </TouchableOpacity>
           </View>
@@ -603,12 +620,17 @@ export const MealEntryModal: React.FC<MealEntryModalProps> = ({
         ) : null}
 
         <TouchableOpacity
-          style={[styles.btn, styles.btnPrimary, (!selectedImageBase64 || visionLoading) && styles.btnDisabled]}
+          style={[styles.btn, styles.btnPrimary, (!selectedImageAsset || visionLoading) && styles.btnDisabled]}
           onPress={handleAnalyzeVisionPhoto}
-          disabled={!selectedImageBase64 || visionLoading}
+          disabled={!selectedImageAsset || visionLoading}
         >
           {visionLoading ? (
-            <ActivityIndicator color={colors.textDark} />
+            <View style={styles.loadingRow}>
+              <ActivityIndicator color={colors.textDark} style={styles.loadingSpinner} />
+              <Text style={styles.loadingStageText}>
+                {visionStage || 'Analyzing with Gemini...'}
+              </Text>
+            </View>
           ) : (
             <Text style={styles.btnPrimaryText}>✨ Analyze with Gemini Vision</Text>
           )}
@@ -998,5 +1020,18 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: colors.accentBlue,
+  },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingSpinner: {
+    marginRight: 8,
+  },
+  loadingStageText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textDark,
   },
 });

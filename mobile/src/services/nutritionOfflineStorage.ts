@@ -16,7 +16,10 @@ export interface FrequentFoodItem {
 
 export interface PendingVisionSnap {
   id: string;
-  imageBase64: string;
+  imageUri: string;
+  imageBase64?: string;
+  fileName?: string;
+  type?: string;
   mealHint?: string;
   category?: string;
   timestamp: string;

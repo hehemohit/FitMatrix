@@ -298,13 +298,44 @@ export const saveCustomBarcodeToServer = async (payload: CustomBarcodePayload): 
   return data;
 };
 
+export interface MealImageUpload {
+  uri: string;
+  type?: string;
+  fileName?: string;
+}
+
 export const estimateVisionMealMacros = async (
-  imageBase64: string,
+  imageInput: MealImageUpload | string,
   mealHint?: string,
 ): Promise<VisionEstimateResponse> => {
+  if (typeof imageInput === 'object' && imageInput.uri) {
+    const formData = new FormData();
+    formData.append('file', {
+      uri: imageInput.uri,
+      type: imageInput.type || 'image/jpeg',
+      name: imageInput.fileName || 'meal.jpg',
+    } as any);
+
+    if (mealHint?.trim()) {
+      formData.append('meal_hint', mealHint.trim());
+    }
+
+    const { data } = await apiClient.post<VisionEstimateResponse>(
+      '/api/v1/nutrition/vision-estimate',
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    );
+    return data;
+  }
+
+  // Fallback for Base64 string if provided
   const { data } = await apiClient.post<VisionEstimateResponse>('/api/v1/nutrition/vision-estimate', {
-    image_base64: imageBase64,
-    meal_hint: mealHint,
+    image_base64: imageInput,
+    meal_hint: mealHint?.trim() || undefined,
   });
   return data;
 };
