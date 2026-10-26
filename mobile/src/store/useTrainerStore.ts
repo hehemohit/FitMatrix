@@ -53,35 +53,41 @@ import type { ChatMessage } from '../components/ChatView';
 // Re-export ChatMessage so consumers can import from the store
 export type { ChatMessage } from '../components/ChatView';
 
-// ─── MMKV Instance ────────────────────────────────────────────────────────────
+// ─── MMKV Instances ───────────────────────────────────────────────────────────
 
 const storage: MMKV = createMMKV({ id: 'fitmatrix-store' });
+const authStorage: MMKV = createMMKV({ id: 'fitmatrix-auth-store' });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function persist<T>(key: string, value: T): void {
-  storage.set(key, JSON.stringify(value));
+function getActiveUserId(): string {
+  try {
+    const raw = authStorage.getString('user');
+    if (raw) {
+      const u = JSON.parse(raw);
+      if (u?.userId) return u.userId;
+    }
+  } catch {}
+  return 'local_user';
 }
 
-function hydrate<T>(key: string, fallback: T): T {
-  const raw = storage.getString(key);
+function getScopedKey(key: string, customUserId?: string): string {
+  const uid = customUserId || getActiveUserId();
+  return `${uid}:${key}`;
+}
+
+function persist<T>(key: string, value: T, customUserId?: string): void {
+  storage.set(getScopedKey(key, customUserId), JSON.stringify(value));
+}
+
+function hydrate<T>(key: string, fallback: T, customUserId?: string): T {
+  const raw = storage.getString(getScopedKey(key, customUserId));
   if (!raw) return fallback;
   try {
     return JSON.parse(raw) as T;
   } catch {
     return fallback;
   }
-}
-
-function getActiveUserId(): string {
-  const raw = storage.getString('user');
-  if (raw) {
-    try {
-      const u = JSON.parse(raw);
-      if (u?.userId) return u.userId;
-    } catch {}
-  }
-  return 'usr_dev_1';
 }
 
 
@@ -176,6 +182,8 @@ interface TrainerState {
   }) => Promise<void>;
   runWeeklyCheckIn: () => Promise<CheckInResult | null>;
   setCheckInModalVisible: (visible: boolean) => void;
+  loadUserData: (userId?: string) => void;
+  resetUserData: () => void;
 }
 
 // ─── Store Implementation ─────────────────────────────────────────────────────
@@ -192,7 +200,7 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
   healthLoading: false,
   readinessLoading: false,
   planLoading: false,
-  todayMeals: [],
+  todayMeals: hydrate<MealItem[]>('today_meals', []),
   strategyLoading: false,
   checkInLoading: false,
   lastCheckInResult: null,
@@ -321,7 +329,7 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
         .map(m => ({ role: m.sender as 'user' | 'coach', text: m.text }));
 
       const res = await sendBiometricsAndMessage({
-        user_id: 'usr_dev_1',
+        user_id: getActiveUserId(),
         message: text,
         steps_today: healthSnapshot?.steps ?? 0,
         sleep_minutes: (healthSnapshot?.sleepMinutes && healthSnapshot.sleepMinutes > 0) ? healthSnapshot.sleepMinutes : 420,
@@ -379,7 +387,7 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
     set({ planLoading: true });
 
     const planPayload = {
-      user_id: 'usr_dev_1',
+      user_id: getActiveUserId(),
       steps_today: healthSnapshot?.steps ?? 0,
       sleep_minutes: (healthSnapshot?.sleepMinutes && healthSnapshot.sleepMinutes > 0) ? healthSnapshot.sleepMinutes : 420,
       active_calories_burned: healthSnapshot?.activeCaloriesBurned ?? 0,
@@ -447,11 +455,12 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
     }
   },
 
-  // ── logMeal: optimistic UI update + MMKV + MongoDB Atlas background sync ──
+  // ── logMeal: local calorie update + user-scoped MMKV + backend streak sync ──
   logMeal: async (meal: MealItem) => {
     set({ mealLoading: true });
+    const activeId = getActiveUserId();
 
-    // 1. Optimistic local update (instant UI feedback)
+    // 1. Local update (calories and meal list stored strictly on-device)
     const currentLog = get().dailyLog;
     const newCalories = (currentLog.calories_logged ?? 0) + meal.calories;
     const newProtein = (currentLog.protein_logged_g ?? 0) + meal.protein_g;
@@ -470,14 +479,15 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
     const foodCount = currentFoodHistory.slice(-7).filter(Boolean).length;
     const newFoodStat = `${foodCount}/7`;
 
-    persist('daily_log', updatedLog);
-    persist('food_log_history', currentFoodHistory);
-    persist('food_log_stat', newFoodStat);
+    persist('daily_log', updatedLog, activeId);
+    persist('today_meals', updatedMeals, activeId);
+    persist('food_log_history', currentFoodHistory, activeId);
+    persist('food_log_stat', newFoodStat, activeId);
 
     // Record to smart frequent foods tracker
     try {
       const { recordLoggedFood } = require('../services/nutritionOfflineStorage');
-      recordLoggedFood(meal);
+      recordLoggedFood(meal, activeId);
     } catch (e) {
       // safe fallback
     }
@@ -490,29 +500,23 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
       mealLoading: false,
     });
 
-    // 2. Background sync to MongoDB Atlas
+    // 2. Background sync check-in event to MongoDB Atlas for streak tracking
     try {
-      const serverDay = await logFitnessMeal('usr_dev_1', meal);
-      const reconciledLog: DailyLog = {
-        ...get().dailyLog,
-        calories_logged: serverDay.total_calories_consumed,
-        protein_logged_g: serverDay.total_protein_g,
-      };
-      persist('daily_log', reconciledLog);
-      set({ dailyLog: reconciledLog, todayMeals: serverDay.meals });
+      await logFitnessMeal(activeId, meal);
     } catch (err) {
-      console.warn('[logMeal] Server sync failed (offline?). Local state preserved:', err);
+      console.warn('[logMeal] Server streak sync failed (offline?). Local state preserved:', err);
     }
   },
 
   // ── syncHabitsHistory: queries 28-day habits consistency for Weigh-In and Food Logging ──
   syncHabitsHistory: async () => {
     try {
-      const habits = await getHabitsHistory('usr_dev_1', 28);
-      persist('weigh_in_history', habits.weigh_in_history);
-      persist('weigh_in_stat', habits.weigh_in_stat);
-      persist('food_log_history', habits.food_log_history);
-      persist('food_log_stat', habits.food_log_stat);
+      const activeId = getActiveUserId();
+      const habits = await getHabitsHistory(activeId, 28);
+      persist('weigh_in_history', habits.weigh_in_history, activeId);
+      persist('weigh_in_stat', habits.weigh_in_stat, activeId);
+      persist('food_log_history', habits.food_log_history, activeId);
+      persist('food_log_stat', habits.food_log_stat, activeId);
       set({
         weighInHistory: habits.weigh_in_history,
         weighInStat: habits.weigh_in_stat,
@@ -524,22 +528,31 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
     }
   },
 
-  // ── syncTodayNutrition: fetches today's unified fitness doc + habits on app open ──
+  // ── syncTodayNutrition: maintains local day calorie budget and syncs habit streaks ──
   syncTodayNutrition: async () => {
     try {
-      const todayData = await getTodayFitness('usr_dev_1');
-      const updatedLog: DailyLog = {
-        ...get().dailyLog,
-        calories_logged: todayData.total_calories_consumed,
-        protein_logged_g: todayData.total_protein_g,
-      };
-      persist('daily_log', updatedLog);
-      set({ dailyLog: updatedLog, todayMeals: todayData.meals });
+      const activeId = getActiveUserId();
+      const todayStr = new Date().toISOString().split('T')[0];
+      const curLog = get().dailyLog;
 
-      // Reconcile habits history
-      get().syncHabitsHistory();
+      if (curLog?.date_id && curLog.date_id !== todayStr) {
+        // Local midnight rollover: start fresh calorie count for new date
+        const rolloverLog: DailyLog = {
+          date_id: todayStr,
+          calories_logged: 0,
+          protein_logged_g: 0,
+          calorie_goal: get().userProfile.target_calories || get().metabolicTargets.target_calories || 2400,
+          protein_goal_g: get().userProfile.target_protein_g || get().metabolicTargets.target_protein_g || 160,
+        };
+        persist('daily_log', rolloverLog, activeId);
+        persist('today_meals', [], activeId);
+        set({ dailyLog: rolloverLog, todayMeals: [] });
+      }
+
+      // Reconcile habits history streaks from database for this user
+      await get().syncHabitsHistory();
     } catch (err) {
-      console.warn('[syncTodayNutrition] Could not fetch from server. Using local log:', err);
+      console.warn('[syncTodayNutrition] Error:', err);
     }
   },
 
@@ -800,5 +813,60 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
 
   setCheckInModalVisible: (visible: boolean) => {
     set({ checkInModalVisible: visible });
+  },
+
+  loadUserData: (userId?: string) => {
+    const uid = userId || getActiveUserId();
+    set({
+      weighInHistory: hydrate<boolean[]>('weigh_in_history', Array(28).fill(false), uid),
+      weighInStat: hydrate<string>('weigh_in_stat', '0/7', uid),
+      foodLogHistory: hydrate<boolean[]>('food_log_history', Array(28).fill(false), uid),
+      foodLogStat: hydrate<string>('food_log_stat', '0/7', uid),
+      weighInRecords: hydrate<WeighInRecord[]>('weigh_in_records', [], uid),
+      todayMeals: hydrate<MealItem[]>('today_meals', [], uid),
+      userProfile: hydrate<UserProfile>('user_profile', {}, uid),
+      dailyLog: hydrate<DailyLog>('daily_log', {}, uid),
+      metabolicTargets: hydrate<MetabolicTargets>('metabolic_targets', {
+        bmr: 0, tdee: 0,
+        target_calories: 2400,
+        target_protein_g: 160,
+        target_carbs_g: 250,
+        target_fats_g: 70,
+      }, uid),
+      workoutPlan: hydrate<WorkoutPlan | null>('workout_plan', null, uid),
+      dietPlan: hydrate<DietPlan | null>('diet_plan', null, uid),
+      sleepGoal: hydrate<SleepGoal | null>('sleep_goal', null, uid),
+      strategyProfile: hydrate<StrategyProfile | null>('strategy_profile', null, uid),
+    });
+  },
+
+  resetUserData: () => {
+    set({
+      messages: [{ sender: 'coach', text: 'FitMatrix initialized. How can I guide your training today?' }],
+      loading: false,
+      mealLoading: false,
+      coachState: { readiness_score: null as unknown as number, fatigue_flag: null, prescribed_workout: null },
+      todayMeals: [],
+      weighInHistory: Array(28).fill(false),
+      weighInStat: '0/7',
+      foodLogHistory: Array(28).fill(false),
+      foodLogStat: '0/7',
+      weighInRecords: [],
+      userProfile: {},
+      dailyLog: {},
+      metabolicTargets: {
+        bmr: 0, tdee: 0,
+        target_calories: 2400,
+        target_protein_g: 160,
+        target_carbs_g: 250,
+        target_fats_g: 70,
+      },
+      workoutPlan: null,
+      dietPlan: null,
+      sleepGoal: null,
+      strategyProfile: null,
+      lastCheckInResult: null,
+      checkInModalVisible: false,
+    });
   },
 }));

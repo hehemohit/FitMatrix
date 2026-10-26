@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { createMMKV, type MMKV } from 'react-native-mmkv';
 import {
   BiometricPayload,
   CoachResponse,
@@ -12,7 +13,20 @@ import {
 } from '../types/schema';
 import { WorkoutPlan, DietPlan, SleepGoal } from '../types/plans';
 
-import { API_BASE_URL } from '../config/env';
+import { API_BASE_URL, IS_PRODUCTION, LAN_API_URL } from '../config/env';
+
+const authStorage: MMKV = createMMKV({ id: 'fitmatrix-auth-store' });
+
+export const getActiveUserIdFromAuth = (): string => {
+  try {
+    const raw = authStorage.getString('user');
+    if (raw) {
+      const u = JSON.parse(raw);
+      if (u?.userId) return u.userId;
+    }
+  } catch {}
+  return 'local_user';
+};
 
 // Dynamically loaded from mobile/.env via react-native-dotenv
 export const BASE_URL = API_BASE_URL;
@@ -39,7 +53,7 @@ apiClient.interceptors.request.use(config => {
   return config;
 });
 
-// Auto-fallback between localhost (adb reverse) and 10.0.2.2 (Android emulator loopback)
+// Network resilience: Auto-retry cloud cold-start; local dev fallback without ADB dependence
 apiClient.interceptors.response.use(
   response => response,
   async error => {
@@ -52,16 +66,27 @@ apiClient.interceptors.response.use(
     if (isNetworkError && originalRequest && !originalRequest._retry) {
       originalRequest._retry = true;
       const currentBase = originalRequest.baseURL || BASE_URL;
-      let fallbackBase = 'http://localhost:8000';
-      if (currentBase.includes('localhost:8000')) {
+
+      // In production/cloud mode, retry once after a short delay (e.g. Render server cold-start)
+      // NEVER downgrade a standalone APK to localhost:8000
+      if (IS_PRODUCTION || currentBase.startsWith('https://')) {
+        console.warn(`[apiClient] Network timeout/blip on cloud backend (${currentBase}). Retrying in 2s...`);
+        await new Promise<void>(res => setTimeout(() => res(), 2000));
+        return apiClient(originalRequest);
+      }
+
+      // In local dev mode, cycle between LAN IP (no ADB needed), Android emulator loopback, and localhost
+      let fallbackBase = LAN_API_URL;
+      if (currentBase === LAN_API_URL) {
         fallbackBase = 'http://10.0.2.2:8000';
       } else if (currentBase.includes('10.0.2.2:8000')) {
         fallbackBase = 'http://localhost:8000';
+      } else {
+        fallbackBase = LAN_API_URL;
       }
 
-      console.warn(`[apiClient] Network error on ${currentBase}. Cascading fallback to ${fallbackBase}...`);
+      console.warn(`[apiClient] Local network error on ${currentBase}. Retrying with ${fallbackBase}...`);
       originalRequest.baseURL = fallbackBase;
-      apiClient.defaults.baseURL = fallbackBase;
       return apiClient(originalRequest);
     }
     return Promise.reject(error);
@@ -349,18 +374,20 @@ export interface ProfileSyncResponse {
 
 export const syncProfileToServer = async (
   profile: Record<string, unknown>,
-  userId = 'usr_dev_1',
+  userId?: string,
 ): Promise<ProfileSyncResponse> => {
-  const { data } = await apiClient.put<ProfileSyncResponse>('/api/v1/user/profile', { user_id: userId, ...profile });
+  const targetId = userId || getActiveUserIdFromAuth();
+  const { data } = await apiClient.put<ProfileSyncResponse>('/api/v1/user/profile', { user_id: targetId, ...profile });
   return data;
 };
 
 // ─── Weigh-In ─────────────────────────────────────────────────────────────────
 
-export const logWeighIn = async (userId: string, weightKg: number): Promise<void> => {
+export const logWeighIn = async (userId?: string, weightKg: number = 75.0): Promise<void> => {
+  const targetId = userId || getActiveUserIdFromAuth();
   const tzOffset = new Date().getTimezoneOffset();
   await apiClient.post('/api/v1/fitness/weigh-in', {
-    user_id: userId,
+    user_id: targetId,
     scale_weight_kg: weightKg,
     tz_offset: tzOffset,
   });
@@ -390,37 +417,40 @@ export interface HabitsHistoryData {
   food_log_stat: string;
 }
 
-export const getTodayFitness = async (userId = 'usr_dev_1'): Promise<TodayFitnessData> => {
+export const getTodayFitness = async (userId?: string): Promise<TodayFitnessData> => {
+  const targetId = userId || getActiveUserIdFromAuth();
   const tzOffset = new Date().getTimezoneOffset();
   const { data } = await apiClient.get<{ success: boolean; data: TodayFitnessData }>(
     '/api/v1/fitness/today',
-    { params: { user_id: userId, tz_offset: tzOffset } }
+    { params: { user_id: targetId, tz_offset: tzOffset } }
   );
   return data.data;
 };
 
-export const getHabitsHistory = async (userId = 'usr_dev_1', days = 28): Promise<HabitsHistoryData> => {
+export const getHabitsHistory = async (userId?: string, days = 28): Promise<HabitsHistoryData> => {
+  const targetId = userId || getActiveUserIdFromAuth();
   const tzOffset = new Date().getTimezoneOffset();
   const { data } = await apiClient.get<{ success: boolean; data: HabitsHistoryData }>(
     '/api/v1/fitness/history',
-    { params: { user_id: userId, days, tz_offset: tzOffset } }
+    { params: { user_id: targetId, days, tz_offset: tzOffset } }
   );
   return data.data;
 };
 
-export const logFitnessMeal = async (userId: string, meal: MealItem): Promise<TodayFitnessData> => {
+export const logFitnessMeal = async (userId?: string, meal?: MealItem): Promise<TodayFitnessData> => {
+  const targetId = userId || getActiveUserIdFromAuth();
   const tzOffset = new Date().getTimezoneOffset();
   const { data } = await apiClient.post<{ success: boolean; data: TodayFitnessData }>(
     '/api/v1/fitness/food-log',
     {
-      user_id: userId,
-      name: meal.name,
-      category: meal.category,
-      time: meal.time,
-      calories: meal.calories,
-      protein_g: meal.protein_g,
-      carbs_g: meal.carbs_g,
-      fats_g: meal.fats_g,
+      user_id: targetId,
+      name: meal?.name || 'Meal',
+      category: meal?.category || 'Lunch',
+      time: meal?.time || '12:00',
+      calories: meal?.calories || 0,
+      protein_g: meal?.protein_g || 0,
+      carbs_g: meal?.carbs_g || 0,
+      fats_g: meal?.fats_g || 0,
       tz_offset: tzOffset,
     }
   );
@@ -429,10 +459,11 @@ export const logFitnessMeal = async (userId: string, meal: MealItem): Promise<To
 
 // ─── Strategy Command Center API ─────────────────────────────────────────────
 
-export const getStrategyProfile = async (userId = 'usr_dev_1'): Promise<StrategyProfile> => {
+export const getStrategyProfile = async (userId?: string): Promise<StrategyProfile> => {
+  const targetId = userId || getActiveUserIdFromAuth();
   const { data } = await apiClient.get<{ success: boolean; data: StrategyProfile }>(
     '/api/v1/strategy/profile',
-    { params: { user_id: userId } }
+    { params: { user_id: targetId } }
   );
   return data.data;
 };
@@ -445,10 +476,11 @@ export const updateStrategyGoal = async (params: {
   current_weight_kg?: number;
   weekly_rate_percent: number;
 }): Promise<StrategyProfile> => {
+  const targetId = params.userId || getActiveUserIdFromAuth();
   const { data } = await apiClient.put<{ success: boolean; data: StrategyProfile }>(
     '/api/v1/strategy/goal',
     {
-      user_id: params.userId || 'usr_dev_1',
+      user_id: targetId,
       goal_type: params.goal_type,
       target_weight_kg: params.target_weight_kg,
       starting_weight_kg: params.starting_weight_kg,
@@ -460,14 +492,15 @@ export const updateStrategyGoal = async (params: {
 };
 
 export const updateStrategyMode = async (
-  userId = 'usr_dev_1',
-  coachingMode: CoachingMode
+  userId?: string,
+  coachingMode?: CoachingMode
 ): Promise<StrategyProfile> => {
+  const targetId = userId || getActiveUserIdFromAuth();
   const { data } = await apiClient.put<{ success: boolean; data: StrategyProfile }>(
     '/api/v1/strategy/mode',
     {
-      user_id: userId,
-      coaching_mode: coachingMode,
+      user_id: targetId,
+      coaching_mode: coachingMode || 'coached',
     }
   );
   return data.data;
@@ -480,10 +513,11 @@ export const updateDietStyle = async (params: {
   use_day_variation?: boolean;
   training_days?: string[];
 }): Promise<StrategyProfile> => {
+  const targetId = params.userId || getActiveUserIdFromAuth();
   const { data } = await apiClient.put<{ success: boolean; data: StrategyProfile }>(
     '/api/v1/strategy/diet-style',
     {
-      user_id: params.userId || 'usr_dev_1',
+      user_id: targetId,
       diet_style: params.diet_style,
       protein_preference: params.protein_preference || 'moderate',
       use_day_variation: params.use_day_variation ?? false,
@@ -494,42 +528,45 @@ export const updateDietStyle = async (params: {
 };
 
 export const updateScheduleTargets = async (
-  userId = 'usr_dev_1',
-  scheduleTargets: DayMacroTarget[]
+  userId?: string,
+  scheduleTargets?: DayMacroTarget[]
 ): Promise<StrategyProfile> => {
+  const targetId = userId || getActiveUserIdFromAuth();
   const { data } = await apiClient.put<{ success: boolean; data: StrategyProfile }>(
     '/api/v1/strategy/schedule',
     {
-      user_id: userId,
-      schedule_targets: scheduleTargets,
+      user_id: targetId,
+      schedule_targets: scheduleTargets || [],
     }
   );
   return data.data;
 };
 
 export const updateManualTargets = async (
-  userId = 'usr_dev_1',
-  targets: {
+  userId?: string,
+  targets?: {
     target_calories: number;
     target_protein_g: number;
     target_carbs_g: number;
     target_fats_g: number;
   }
 ): Promise<StrategyProfile> => {
+  const targetId = userId || getActiveUserIdFromAuth();
   const { data } = await apiClient.put<{ success: boolean; data: StrategyProfile }>(
     '/api/v1/strategy/manual-targets',
     {
-      user_id: userId,
-      ...targets,
+      user_id: targetId,
+      ...(targets || { target_calories: 2400, target_protein_g: 160, target_carbs_g: 250, target_fats_g: 70 }),
     }
   );
   return data.data;
 };
 
-export const performWeeklyCheckIn = async (userId = 'usr_dev_1'): Promise<CheckInResult> => {
+export const performWeeklyCheckIn = async (userId?: string): Promise<CheckInResult> => {
+  const targetId = userId || getActiveUserIdFromAuth();
   const { data } = await apiClient.post<CheckInResult>(
     '/api/v1/strategy/check-in',
-    { user_id: userId }
+    { user_id: targetId }
   );
   return data;
 };
@@ -550,10 +587,11 @@ export const syncCompletedWorkoutSession = async (
     exercises: any[];
     notes?: string;
   },
-  userId = 'usr_dev_1'
+  userId?: string
 ): Promise<void> => {
+  const targetId = userId || getActiveUserIdFromAuth();
   await apiClient.post('/api/v1/fitness/sessions', {
-    user_id: userId,
+    user_id: targetId,
     session_id: workout.id,
     routine_name: workout.routineName,
     started_at: workout.startedAt,
@@ -593,10 +631,11 @@ export const syncGymCheckIn = async (
     durationMinutes?: number;
     date: string;
   },
-  userId = 'usr_dev_1'
+  userId?: string
 ): Promise<void> => {
+  const targetId = userId || getActiveUserIdFromAuth();
   await apiClient.post('/api/v1/fitness/check-in', {
-    user_id: userId,
+    user_id: targetId,
     check_in_id: record.id,
     gym_name: record.gymName,
     check_in_time: record.checkInTime,
@@ -608,10 +647,11 @@ export const syncGymCheckIn = async (
 
 export const syncWeeklySchedule = async (
   schedule: any[],
-  userId = 'usr_dev_1'
+  userId?: string
 ): Promise<void> => {
+  const targetId = userId || getActiveUserIdFromAuth();
   await apiClient.put('/api/v1/fitness/schedule', {
-    user_id: userId,
+    user_id: targetId,
     schedule: schedule.map(day => ({
       day_name: day.dayName,
       is_rest: day.isRest,
@@ -626,11 +666,13 @@ export const syncWeeklySchedule = async (
   });
 };
 
-export const fetchWeeklySchedule = async (userId = 'usr_dev_1'): Promise<any[] | null> => {
+export const fetchWeeklySchedule = async (userId?: string): Promise<any[] | null> => {
+  const targetId = userId || getActiveUserIdFromAuth();
   const { data } = await apiClient.get('/api/v1/fitness/schedule', {
-    params: { user_id: userId },
+    params: { user_id: targetId },
   });
   return data.data;
 };
+
 
 

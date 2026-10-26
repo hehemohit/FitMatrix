@@ -5,11 +5,13 @@ Provides unified per-day tracking with lazy initialization & upsert pattern.
 Supports client timezone offset for local midnight transitions.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime, timedelta
 
+from app.core.security import security_bearer, decode_access_token
 from app.models.documents import (
     DailyLogDocument,
     MealEntry,
@@ -29,6 +31,25 @@ from app.models.documents import (
 router = APIRouter(prefix="/api/v1/fitness", tags=["fitness"])
 
 
+def resolve_target_user_id(
+    payload_user_id: Optional[str] = None,
+    auth: Optional[HTTPAuthorizationCredentials] = None,
+) -> str:
+    """
+    Resolves the authenticated user ID from JWT bearer token if present,
+    or falls back to the payload/query user_id. Rejects ambiguous defaults.
+    """
+    if auth and auth.credentials:
+        payload = decode_access_token(auth.credentials)
+        if payload and "sub" in payload:
+            return payload["sub"]
+    if payload_user_id and payload_user_id != "usr_dev_1":
+        return payload_user_id
+    if payload_user_id:
+        return payload_user_id
+    raise HTTPException(status_code=401, detail="Authentication required: unable to identify user.")
+
+
 def get_local_date_id(tz_offset_minutes: int = 0) -> str:
     """
     Computes YYYY-MM-DD using client timezone offset in minutes.
@@ -42,7 +63,7 @@ def get_local_date_id(tz_offset_minutes: int = 0) -> str:
 
 
 class AddFoodLogRequest(BaseModel):
-    user_id: str = "usr_dev_1"
+    user_id: Optional[str] = None
     name: str
     category: str = "Lunch"
     time: str = "12:00"
@@ -54,7 +75,7 @@ class AddFoodLogRequest(BaseModel):
 
 
 class AddWeighInRequest(BaseModel):
-    user_id: str = "usr_dev_1"
+    user_id: Optional[str] = None
     scale_weight_kg: float
     tz_offset: int = 0
 
@@ -63,30 +84,32 @@ class AddWeighInRequest(BaseModel):
 
 @router.get("/today")
 async def get_or_init_today_log(
-    user_id: str = Query("usr_dev_1"),
+    user_id: Optional[str] = Query(None),
     tz_offset: int = Query(0),
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
 ):
     try:
+        target_user_id = resolve_target_user_id(user_id, auth)
         today_date_id = get_local_date_id(tz_offset)
 
         today_log = await DailyLogDocument.find_one(
-            DailyLogDocument.user_id == user_id,
+            DailyLogDocument.user_id == target_user_id,
             DailyLogDocument.date_id == today_date_id,
         )
 
         if not today_log:
             # Query user targets to inherit custom calorie & protein goals
-            user_doc = await UserDocument.find_one(UserDocument.user_id == user_id)
+            user_doc = await UserDocument.find_one(UserDocument.user_id == target_user_id)
             cal_goal = user_doc.targets.target_calories if user_doc and user_doc.targets else 2400
             pro_goal = user_doc.targets.target_protein_g if user_doc and user_doc.targets else 160
 
             # Also check if there were legacy nutrition_logs or daily_metrics logged today
             legacy_nutrition = await NutritionLogDocument.find_one(
-                NutritionLogDocument.user_id == user_id,
+                NutritionLogDocument.user_id == target_user_id,
                 NutritionLogDocument.date == today_date_id,
             )
             legacy_metric = await DailyMetricDocument.find_one(
-                DailyMetricDocument.user_id == user_id,
+                DailyMetricDocument.user_id == target_user_id,
                 DailyMetricDocument.date == today_date_id,
             )
 
@@ -98,7 +121,7 @@ async def get_or_init_today_log(
             weight = legacy_metric.scale_weight_kg if legacy_metric else None
 
             today_log = DailyLogDocument(
-                user_id=user_id,
+                user_id=target_user_id,
                 date_id=today_date_id,
                 calorie_goal=cal_goal,
                 protein_goal_g=pro_goal,
@@ -134,8 +157,12 @@ async def get_or_init_today_log(
 # ─── 2. Add Food Log (Atomic Upsert) ──────────────────────────────────────────
 
 @router.post("/food-log")
-async def add_food_log(payload: AddFoodLogRequest):
+async def add_food_log(
+    payload: AddFoodLogRequest,
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
+):
     try:
+        target_user_id = resolve_target_user_id(payload.user_id, auth)
         today_date_id = get_local_date_id(payload.tz_offset)
 
         meal = MealEntry(
@@ -149,7 +176,7 @@ async def add_food_log(payload: AddFoodLogRequest):
         )
 
         log_doc = await DailyLogDocument.find_one(
-            DailyLogDocument.user_id == payload.user_id,
+            DailyLogDocument.user_id == target_user_id,
             DailyLogDocument.date_id == today_date_id,
         )
 
@@ -162,12 +189,12 @@ async def add_food_log(payload: AddFoodLogRequest):
             log_doc.updated_at = datetime.utcnow()
             await log_doc.save()
         else:
-            user_doc = await UserDocument.find_one(UserDocument.user_id == payload.user_id)
+            user_doc = await UserDocument.find_one(UserDocument.user_id == target_user_id)
             cal_goal = user_doc.targets.target_calories if user_doc and user_doc.targets else 2400
             pro_goal = user_doc.targets.target_protein_g if user_doc and user_doc.targets else 160
 
             log_doc = DailyLogDocument(
-                user_id=payload.user_id,
+                user_id=target_user_id,
                 date_id=today_date_id,
                 calorie_goal=cal_goal,
                 protein_goal_g=pro_goal,
@@ -197,12 +224,16 @@ async def add_food_log(payload: AddFoodLogRequest):
 # ─── 3. Add Weigh-In ──────────────────────────────────────────────────────────
 
 @router.post("/weigh-in")
-async def add_weigh_in(payload: AddWeighInRequest):
+async def add_weigh_in(
+    payload: AddWeighInRequest,
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
+):
     try:
+        target_user_id = resolve_target_user_id(payload.user_id, auth)
         today_date_id = get_local_date_id(payload.tz_offset)
 
         log_doc = await DailyLogDocument.find_one(
-            DailyLogDocument.user_id == payload.user_id,
+            DailyLogDocument.user_id == target_user_id,
             DailyLogDocument.date_id == today_date_id,
         )
 
@@ -211,12 +242,12 @@ async def add_weigh_in(payload: AddWeighInRequest):
             log_doc.updated_at = datetime.utcnow()
             await log_doc.save()
         else:
-            user_doc = await UserDocument.find_one(UserDocument.user_id == payload.user_id)
+            user_doc = await UserDocument.find_one(UserDocument.user_id == target_user_id)
             cal_goal = user_doc.targets.target_calories if user_doc and user_doc.targets else 2400
             pro_goal = user_doc.targets.target_protein_g if user_doc and user_doc.targets else 160
 
             log_doc = DailyLogDocument(
-                user_id=payload.user_id,
+                user_id=target_user_id,
                 date_id=today_date_id,
                 calorie_goal=cal_goal,
                 protein_goal_g=pro_goal,
@@ -225,7 +256,7 @@ async def add_weigh_in(payload: AddWeighInRequest):
             await log_doc.insert()
 
         # Update profile weight
-        user_doc = await UserDocument.find_one(UserDocument.user_id == payload.user_id)
+        user_doc = await UserDocument.find_one(UserDocument.user_id == target_user_id)
         if user_doc:
             user_doc.profile.weight_kg = payload.scale_weight_kg
             await user_doc.save()
@@ -245,15 +276,17 @@ async def add_weigh_in(payload: AddWeighInRequest):
 
 @router.get("/history")
 async def get_habits_history(
-    user_id: str = Query("usr_dev_1"),
+    user_id: Optional[str] = Query(None),
     days: int = Query(28),
     tz_offset: int = Query(0),
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
 ):
     """
     Returns 28-day boolean arrays for Weigh-In and Food Logging
     to populate the MacroFactor habits grid and 'X/7 this week' stats.
     """
     try:
+        target_user_id = resolve_target_user_id(user_id, auth)
         utc_now = datetime.utcnow()
         client_now = utc_now - timedelta(minutes=tz_offset)
 
@@ -265,7 +298,7 @@ async def get_habits_history(
 
         # Query all documents in range
         logs = await DailyLogDocument.find(
-            DailyLogDocument.user_id == user_id,
+            DailyLogDocument.user_id == target_user_id,
             DailyLogDocument.date_id >= date_list[0],
             DailyLogDocument.date_id <= date_list[-1],
         ).to_list()
@@ -303,7 +336,7 @@ async def get_habits_history(
 # ─── 5. Workout Session Endpoints ─────────────────────────────────────────────
 
 class CompletedWorkoutRequest(BaseModel):
-    user_id: str = "usr_dev_1"
+    user_id: Optional[str] = None
     session_id: str
     routine_name: str
     started_at: datetime
@@ -318,12 +351,17 @@ class CompletedWorkoutRequest(BaseModel):
 
 
 @router.post("/sessions")
-async def record_workout_session(payload: CompletedWorkoutRequest):
+async def record_workout_session(
+    payload: CompletedWorkoutRequest,
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
+):
     """
     Saves a completed workout session into MongoDB Atlas and links
     calories burned to the user's daily_log document.
     """
     try:
+        target_user_id = resolve_target_user_id(payload.user_id, auth)
+
         # 1. Upsert WorkoutSessionDocument
         existing = await WorkoutSessionDocument.find_one(
             WorkoutSessionDocument.session_id == payload.session_id
@@ -343,7 +381,7 @@ async def record_workout_session(payload: CompletedWorkoutRequest):
         else:
             doc = WorkoutSessionDocument(
                 session_id=payload.session_id,
-                user_id=payload.user_id,
+                user_id=target_user_id,
                 routine_name=payload.routine_name,
                 started_at=payload.started_at,
                 completed_at=payload.completed_at,
@@ -360,7 +398,7 @@ async def record_workout_session(payload: CompletedWorkoutRequest):
         # 2. Add to DailyLog workout_logs
         date_str = payload.completed_at.strftime("%Y-%m-%d")
         daily_log = await DailyLogDocument.find_one(
-            DailyLogDocument.user_id == payload.user_id,
+            DailyLogDocument.user_id == target_user_id,
             DailyLogDocument.date_id == date_str,
         )
         if daily_log:
@@ -385,16 +423,18 @@ async def record_workout_session(payload: CompletedWorkoutRequest):
 
 @router.get("/sessions")
 async def get_workout_sessions(
-    user_id: str = Query("usr_dev_1"),
+    user_id: Optional[str] = Query(None),
     limit: int = Query(50),
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
 ):
     """
     Retrieves recent completed workout sessions for progress & stats.
     """
     try:
+        target_user_id = resolve_target_user_id(user_id, auth)
         sessions = (
             await WorkoutSessionDocument.find(
-                WorkoutSessionDocument.user_id == user_id
+                WorkoutSessionDocument.user_id == target_user_id
             )
             .sort(-WorkoutSessionDocument.completed_at)
             .limit(limit)
@@ -408,7 +448,7 @@ async def get_workout_sessions(
 # ─── 6. Gym Check-In Endpoints ────────────────────────────────────────────────
 
 class CheckInRequest(BaseModel):
-    user_id: str = "usr_dev_1"
+    user_id: Optional[str] = None
     check_in_id: str
     gym_name: str = "FitMatrix Partner Gym"
     check_in_time: datetime
@@ -418,11 +458,15 @@ class CheckInRequest(BaseModel):
 
 
 @router.post("/check-in")
-async def log_gym_check_in(payload: CheckInRequest):
+async def log_gym_check_in(
+    payload: CheckInRequest,
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
+):
     """
     Records or updates a gym attendance check-in.
     """
     try:
+        target_user_id = resolve_target_user_id(payload.user_id, auth)
         existing = await GymCheckInDocument.find_one(
             GymCheckInDocument.check_in_id == payload.check_in_id
         )
@@ -434,7 +478,7 @@ async def log_gym_check_in(payload: CheckInRequest):
         else:
             doc = GymCheckInDocument(
                 check_in_id=payload.check_in_id,
-                user_id=payload.user_id,
+                user_id=target_user_id,
                 gym_name=payload.gym_name,
                 check_in_time=payload.check_in_time,
                 check_out_time=payload.check_out_time,
@@ -451,18 +495,22 @@ async def log_gym_check_in(payload: CheckInRequest):
 # ─── 7. Weekly Schedule Endpoints ─────────────────────────────────────────────
 
 class SaveScheduleRequest(BaseModel):
-    user_id: str = "usr_dev_1"
+    user_id: Optional[str] = None
     schedule: List[DayScheduleData]
 
 
 @router.get("/schedule")
-async def get_weekly_schedule(user_id: str = Query("usr_dev_1")):
+async def get_weekly_schedule(
+    user_id: Optional[str] = Query(None),
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
+):
     """
     Retrieves the user's active Monday to Sunday routine schedule.
     """
     try:
+        target_user_id = resolve_target_user_id(user_id, auth)
         doc = await WeeklyScheduleDocument.find_one(
-            WeeklyScheduleDocument.user_id == user_id
+            WeeklyScheduleDocument.user_id == target_user_id
         )
         if not doc:
             return {"success": True, "data": None}
@@ -472,13 +520,17 @@ async def get_weekly_schedule(user_id: str = Query("usr_dev_1")):
 
 
 @router.put("/schedule")
-async def update_weekly_schedule(payload: SaveScheduleRequest):
+async def update_weekly_schedule(
+    payload: SaveScheduleRequest,
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
+):
     """
     Persists the user's updated 7-day routine schedule.
     """
     try:
+        target_user_id = resolve_target_user_id(payload.user_id, auth)
         doc = await WeeklyScheduleDocument.find_one(
-            WeeklyScheduleDocument.user_id == payload.user_id
+            WeeklyScheduleDocument.user_id == target_user_id
         )
         if doc:
             doc.schedule = payload.schedule
@@ -486,7 +538,7 @@ async def update_weekly_schedule(payload: SaveScheduleRequest):
             await doc.save()
         else:
             doc = WeeklyScheduleDocument(
-                user_id=payload.user_id,
+                user_id=target_user_id,
                 schedule=payload.schedule,
             )
             await doc.insert()

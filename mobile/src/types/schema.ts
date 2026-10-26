@@ -18,10 +18,13 @@ export interface UserProfile {
 }
 
 export interface DailyLog {
+  date_id?: string;
   meals_logged?: string[];
   workouts_completed?: string[];
   calories_logged?: number;
   protein_logged_g?: number;
+  calorie_goal?: number;
+  protein_goal_g?: number;
 }
 
 export interface BiometricPayload {

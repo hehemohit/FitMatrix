@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Image,
 } from 'react-native';
 import { useSafeTopInset } from '../../hooks/useSafeTopInset';
 import { useAuthStore } from '../../store/useAuthStore';
@@ -65,7 +66,11 @@ export const AuthScreen: React.FC = () => {
           {/* Brand Header */}
           <View style={styles.brandHeader}>
             <View style={styles.logoBadge}>
-              <Text style={styles.logoGlyph}>⚡</Text>
+              <Image
+                source={require('../../assets/logo.png')}
+                style={styles.logoImage}
+                resizeMode="contain"
+              />
             </View>
             <Text style={styles.brandTitle}>FITMATRIX</Text>
             <Text style={styles.brandTagline}>Autonomous Metabolic Intelligence</Text>
@@ -200,18 +205,21 @@ const styles = StyleSheet.create({
     marginBottom: 28,
   },
   logoBadge: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: colors.cardHeader,
+    width: 68,
+    height: 68,
+    borderRadius: 20,
+    backgroundColor: '#0c141d',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: colors.borderSubtle,
+    borderColor: 'rgba(0, 229, 255, 0.25)',
+    overflow: 'hidden',
   },
-  logoGlyph: {
-    fontSize: 26,
+  logoImage: {
+    width: 58,
+    height: 58,
+    borderRadius: 16,
   },
   brandTitle: {
     fontSize: 28,

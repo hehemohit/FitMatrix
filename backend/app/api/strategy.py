@@ -10,12 +10,14 @@ MacroFactor-inspired strategy engine:
   - Coaching modes (Coached, Collaborative, Manual)
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime, timedelta
 import math
 
+from app.core.security import security_bearer, decode_access_token
 from app.models.documents import (
     StrategyProfileDocument,
     DayMacroTarget,
@@ -28,6 +30,25 @@ router = APIRouter(prefix="/api/v1/strategy", tags=["strategy"])
 
 DAYS_OF_WEEK = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 DEFAULT_TRAINING_DAYS = {"mon", "tue", "thu", "fri"}
+
+
+def resolve_target_user_id(
+    payload_user_id: Optional[str] = None,
+    auth: Optional[HTTPAuthorizationCredentials] = None,
+) -> str:
+    """
+    Resolves the authenticated user ID from JWT bearer token if present,
+    or falls back to the payload/query user_id. Rejects ambiguous defaults.
+    """
+    if auth and auth.credentials:
+        payload = decode_access_token(auth.credentials)
+        if payload and "sub" in payload:
+            return payload["sub"]
+    if payload_user_id and payload_user_id != "usr_dev_1":
+        return payload_user_id
+    if payload_user_id:
+        return payload_user_id
+    raise HTTPException(status_code=401, detail="Authentication required: unable to identify user.")
 
 
 # ─── Helper Functions: Math & Metabolic Models ───────────────────────────────
@@ -204,7 +225,7 @@ def generate_schedule(
 # ─── Request / Response Schemas ──────────────────────────────────────────────
 
 class UpdateGoalRequest(BaseModel):
-    user_id: str = "usr_dev_1"
+    user_id: Optional[str] = None
     goal_type: str = "fat_loss"              # fat_loss | maintenance | muscle_gain
     target_weight_kg: float = 75.0
     starting_weight_kg: Optional[float] = None
@@ -213,12 +234,12 @@ class UpdateGoalRequest(BaseModel):
 
 
 class UpdateModeRequest(BaseModel):
-    user_id: str = "usr_dev_1"
+    user_id: Optional[str] = None
     coaching_mode: str = "coached"           # coached | collaborative | manual
 
 
 class UpdateDietStyleRequest(BaseModel):
-    user_id: str = "usr_dev_1"
+    user_id: Optional[str] = None
     diet_style: str = "balanced"             # balanced | low_carb | keto | high_protein
     protein_preference: str = "moderate"     # low | moderate | high
     use_day_variation: bool = False
@@ -226,7 +247,7 @@ class UpdateDietStyleRequest(BaseModel):
 
 
 class UpdateManualTargetsRequest(BaseModel):
-    user_id: str = "usr_dev_1"
+    user_id: Optional[str] = None
     target_calories: int
     target_protein_g: int
     target_carbs_g: int
@@ -234,12 +255,12 @@ class UpdateManualTargetsRequest(BaseModel):
 
 
 class UpdateScheduleRequest(BaseModel):
-    user_id: str = "usr_dev_1"
+    user_id: Optional[str] = None
     schedule_targets: List[DayMacroTarget]
 
 
 class CheckInRequest(BaseModel):
-    user_id: str = "usr_dev_1"
+    user_id: Optional[str] = None
 
 
 class CheckInResponse(BaseModel):
@@ -257,18 +278,22 @@ class CheckInResponse(BaseModel):
 # ─── 1. Get Strategy Profile ──────────────────────────────────────────────────
 
 @router.get("/profile")
-async def get_strategy_profile(user_id: str = Query("usr_dev_1")):
+async def get_strategy_profile(
+    user_id: Optional[str] = Query(None),
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
+):
     """
     Returns current strategy profile or initializes default MacroFactor
     metabolic configuration for the user.
     """
     try:
+        target_user_id = resolve_target_user_id(user_id, auth)
         profile = await StrategyProfileDocument.find_one(
-            StrategyProfileDocument.user_id == user_id
+            StrategyProfileDocument.user_id == target_user_id
         )
 
         # Cross-reference with UserDocument if needed
-        user_doc = await UserDocument.find_one(UserDocument.user_id == user_id)
+        user_doc = await UserDocument.find_one(UserDocument.user_id == target_user_id)
         current_weight = 78.4
         if user_doc and user_doc.profile and user_doc.profile.weight_kg:
             current_weight = user_doc.profile.weight_kg
@@ -289,7 +314,7 @@ async def get_strategy_profile(user_id: str = Query("usr_dev_1")):
             sched = generate_schedule(exact_cals, p, c, f, False)
 
             profile = StrategyProfileDocument(
-                user_id=user_id,
+                user_id=target_user_id,
                 goal_type=goal_type,
                 target_weight_kg=target_weight,
                 starting_weight_kg=starting_weight,
@@ -346,15 +371,19 @@ async def get_strategy_profile(user_id: str = Query("usr_dev_1")):
 # ─── 2. Update Goal Configuration ─────────────────────────────────────────────
 
 @router.put("/goal")
-async def update_goal(payload: UpdateGoalRequest):
+async def update_goal(
+    payload: UpdateGoalRequest,
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
+):
     """
     Updates user's primary goal (Fat Loss, Maintenance, Muscle Gain),
     target weight, and weekly rate of progress. Recalculates ETA,
     daily calorie deficit/surplus, and macro split.
     """
     try:
+        target_user_id = resolve_target_user_id(payload.user_id, auth)
         profile = await StrategyProfileDocument.find_one(
-            StrategyProfileDocument.user_id == payload.user_id
+            StrategyProfileDocument.user_id == target_user_id
         )
         if not profile:
             raise HTTPException(status_code=404, detail="Strategy profile not found.")
@@ -403,7 +432,7 @@ async def update_goal(payload: UpdateGoalRequest):
         await profile.save()
 
         # Also sync target calories back to user targets in UserDocument if in coached mode
-        user_doc = await UserDocument.find_one(UserDocument.user_id == payload.user_id)
+        user_doc = await UserDocument.find_one(UserDocument.user_id == target_user_id)
         if user_doc and profile.coaching_mode == "coached":
             user_doc.targets.target_calories = exact_cals
             user_doc.targets.target_protein_g = p
@@ -420,13 +449,17 @@ async def update_goal(payload: UpdateGoalRequest):
 # ─── 3. Update Coaching Mode ──────────────────────────────────────────────────
 
 @router.put("/mode")
-async def update_coaching_mode(payload: UpdateModeRequest):
+async def update_coaching_mode(
+    payload: UpdateModeRequest,
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
+):
     """
     Switches between Coached, Collaborative, and Manual mode.
     """
     try:
+        target_user_id = resolve_target_user_id(payload.user_id, auth)
         profile = await StrategyProfileDocument.find_one(
-            StrategyProfileDocument.user_id == payload.user_id
+            StrategyProfileDocument.user_id == target_user_id
         )
         if not profile:
             raise HTTPException(status_code=404, detail="Strategy profile not found.")
@@ -444,14 +477,18 @@ async def update_coaching_mode(payload: UpdateModeRequest):
 # ─── 4. Update Diet Style & Macro Preset ──────────────────────────────────────
 
 @router.put("/diet-style")
-async def update_diet_style(payload: UpdateDietStyleRequest):
+async def update_diet_style(
+    payload: UpdateDietStyleRequest,
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
+):
     """
     Recalibrates macro distribution based on chosen diet style
     (Balanced, Low-Carb, Keto, High-Protein) and Day Variation toggle.
     """
     try:
+        target_user_id = resolve_target_user_id(payload.user_id, auth)
         profile = await StrategyProfileDocument.find_one(
-            StrategyProfileDocument.user_id == payload.user_id
+            StrategyProfileDocument.user_id == target_user_id
         )
         if not profile:
             raise HTTPException(status_code=404, detail="Strategy profile not found.")
@@ -493,13 +530,17 @@ async def update_diet_style(payload: UpdateDietStyleRequest):
 # ─── 5. Update Schedule Targets (Day-to-Day Customization) ────────────────────
 
 @router.put("/schedule")
-async def update_schedule(payload: UpdateScheduleRequest):
+async def update_schedule(
+    payload: UpdateScheduleRequest,
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
+):
     """
     Directly updates the 7-day macro targets table (Collaborative or Manual mode).
     """
     try:
+        target_user_id = resolve_target_user_id(payload.user_id, auth)
         profile = await StrategyProfileDocument.find_one(
-            StrategyProfileDocument.user_id == payload.user_id
+            StrategyProfileDocument.user_id == target_user_id
         )
         if not profile:
             raise HTTPException(status_code=404, detail="Strategy profile not found.")
@@ -517,13 +558,17 @@ async def update_schedule(payload: UpdateScheduleRequest):
 # ─── 6. Update Manual Targets ─────────────────────────────────────────────────
 
 @router.put("/manual-targets")
-async def update_manual_targets(payload: UpdateManualTargetsRequest):
+async def update_manual_targets(
+    payload: UpdateManualTargetsRequest,
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
+):
     """
     Directly overwrites calorie and macro targets (Manual mode).
     """
     try:
+        target_user_id = resolve_target_user_id(payload.user_id, auth)
         profile = await StrategyProfileDocument.find_one(
-            StrategyProfileDocument.user_id == payload.user_id
+            StrategyProfileDocument.user_id == target_user_id
         )
         if not profile:
             raise HTTPException(status_code=404, detail="Strategy profile not found.")
@@ -553,7 +598,10 @@ async def update_manual_targets(payload: UpdateManualTargetsRequest):
 # ─── 7. Weekly Adherence-Neutral Check-In ─────────────────────────────────────
 
 @router.post("/check-in", response_model=CheckInResponse)
-async def perform_weekly_check_in(payload: CheckInRequest):
+async def perform_weekly_check_in(
+    payload: CheckInRequest,
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
+):
     """
     MacroFactor weekly check-in algorithm:
     1. Inspects metabolic trends and energy intake over past 14 days.
@@ -562,8 +610,9 @@ async def perform_weekly_check_in(payload: CheckInRequest):
     4. Delivers clear before/after diffs and coaching narrative.
     """
     try:
+        target_user_id = resolve_target_user_id(payload.user_id, auth)
         profile = await StrategyProfileDocument.find_one(
-            StrategyProfileDocument.user_id == payload.user_id
+            StrategyProfileDocument.user_id == target_user_id
         )
         if not profile:
             raise HTTPException(status_code=404, detail="Strategy profile not found.")
@@ -645,7 +694,7 @@ async def perform_weekly_check_in(payload: CheckInRequest):
         await profile.save()
 
         # Update UserDocument targets for synchronization across the app
-        user_doc = await UserDocument.find_one(UserDocument.user_id == payload.user_id)
+        user_doc = await UserDocument.find_one(UserDocument.user_id == target_user_id)
         if user_doc and user_doc.targets:
             user_doc.targets.tdee = float(new_tdee)
             user_doc.targets.target_calories = new_exact_cals

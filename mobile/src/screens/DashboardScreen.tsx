@@ -9,6 +9,7 @@ import {
   StatusBar,
   Platform,
   TouchableOpacity,
+  Image,
 } from 'react-native';
 import { useDashboardTabStore } from '../store/useDashboardTabStore';
 import { useSafeTopInset } from '../hooks/useSafeTopInset';
@@ -114,9 +115,16 @@ export const DashboardScreen: React.FC = () => {
       >
         {/* Header */}
         <View style={styles.headerRow}>
-          <View>
-            <Text style={styles.dateLabel}>{formattedDate}</Text>
-            <Text style={styles.pageTitle}>Dashboard</Text>
+          <View style={styles.headerTitleGroup}>
+            <Image
+              source={require('../assets/logo.png')}
+              style={styles.headerLogo}
+              resizeMode="contain"
+            />
+            <View>
+              <Text style={styles.dateLabel}>{formattedDate}</Text>
+              <Text style={styles.pageTitle}>Dashboard</Text>
+            </View>
           </View>
           <TouchableOpacity
             style={styles.switchDashboardBtn}
@@ -228,7 +236,17 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-end',
+    alignItems: 'center',
+  },
+  headerTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  headerLogo: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
   },
   switchDashboardBtn: {
     flexDirection: 'row',

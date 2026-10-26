@@ -53,9 +53,13 @@ export function cacheBarcodeProduct(barcode: string, product: BarcodeProduct): v
 
 // ─── 2. Smart Frequent Foods (Top 5 Staples) ─────────────────────────────────
 
-export function getFrequentFoods(): FrequentFoodItem[] {
+function getFrequentFoodsKey(userId?: string): string {
+  return userId ? `${userId}_${FREQUENT_FOODS_KEY}` : FREQUENT_FOODS_KEY;
+}
+
+export function getFrequentFoods(userId?: string): FrequentFoodItem[] {
   try {
-    const raw = offlineStorage.getString(FREQUENT_FOODS_KEY);
+    const raw = offlineStorage.getString(getFrequentFoodsKey(userId));
     if (raw) {
       const items = JSON.parse(raw) as FrequentFoodItem[];
       return items.sort((a, b) => b.count - a.count).slice(0, 5);
@@ -72,9 +76,10 @@ export function getFrequentFoods(): FrequentFoodItem[] {
   ];
 }
 
-export function recordLoggedFood(meal: MealItem): void {
+export function recordLoggedFood(meal: MealItem, userId?: string): void {
   try {
-    const raw = offlineStorage.getString(FREQUENT_FOODS_KEY);
+    const storageKey = getFrequentFoodsKey(userId);
+    const raw = offlineStorage.getString(storageKey);
     let items: FrequentFoodItem[] = raw ? JSON.parse(raw) : [];
 
     const normName = meal.name.trim().toLowerCase();
@@ -103,7 +108,7 @@ export function recordLoggedFood(meal: MealItem): void {
 
     // Keep top 30 items
     items = items.sort((a, b) => b.count - a.count).slice(0, 30);
-    offlineStorage.set(FREQUENT_FOODS_KEY, JSON.stringify(items));
+    offlineStorage.set(storageKey, JSON.stringify(items));
   } catch (err) {
     console.warn('[recordLoggedFood] Error updating frequent foods:', err);
   }

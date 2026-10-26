@@ -92,7 +92,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
 
       // Synchronize trainer store for active user
-      useTrainerStore.getState().fetchStrategyProfile();
+      const trainer = useTrainerStore.getState();
+      trainer.loadUserData(res.user_id);
+      trainer.fetchStrategyProfile();
+      trainer.syncHabitsHistory();
       return true;
     } catch (err: any) {
       const msg = err.response?.data?.detail || 'Login failed. Please check your credentials.';
@@ -117,6 +120,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       persist('user', authUser);
       persist('is_onboarded', false);
 
+      useTrainerStore.getState().resetUserData();
+
       set({
         token: res.access_token,
         user: authUser,
@@ -138,6 +143,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     storage.remove('user');
     storage.remove('is_onboarded');
 
+    useTrainerStore.getState().resetUserData();
+
     set({
       token: null,
       user: null,
@@ -158,7 +165,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       if (res.success) {
         const updatedUser: AuthUser = {
-          userId: currentUser?.userId || 'usr_dev_1',
+          userId: currentUser?.userId || '',
           email: currentUser?.email || '',
           fullName: payload.full_name,
           isOnboarded: true,
@@ -169,6 +176,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
         // Update trainer store with initial calibrated profile & strategy
         const trainerStore = useTrainerStore.getState();
+        trainerStore.loadUserData(updatedUser.userId);
         trainerStore.syncCurrentWeight(payload.current_weight_kg);
         if (res.strategy_profile) {
           trainerStore.setScheduleTargets(res.strategy_profile.schedule_targets);

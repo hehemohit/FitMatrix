@@ -193,7 +193,7 @@ async def complete_onboarding(
       4. Initializes StrategyProfileDocument & DailyLogDocument instances.
       5. Marks user as is_onboarded = True.
     """
-    target_user_id = current_user.user_id if current_user else (payload.user_id or "usr_dev_1")
+    target_user_id = current_user.user_id if current_user else (payload.user_id or f"usr_{uuid.uuid4().hex[:10]}")
     user_doc = await UserDocument.find_one(UserDocument.user_id == target_user_id)
     if not user_doc:
         # Create user document if initializing from standalone onboarding
