@@ -72,6 +72,8 @@ interface MealEntryModalProps {
   visible: boolean;
   onClose: () => void;
   onLog: (meal: MealItem) => Promise<void>;
+  initialCategory?: string;
+  initialDescription?: string;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -80,21 +82,33 @@ export const MealEntryModal: React.FC<MealEntryModalProps> = ({
   visible,
   onClose,
   onLog,
+  initialCategory,
+  initialDescription,
 }) => {
   const [activeMode, setActiveMode] = useState<LogMode>('describe');
 
   // ── Mode 1: Text Describe State ─────────────────────────────────────────────
-  const [description, setDescription] = useState('');
+  const [description, setDescription] = useState(initialDescription || '');
   const [name, setName] = useState('');
-  const [category, setCategory] = useState('Lunch');
+  const [category, setCategory] = useState(initialCategory || 'Lunch');
   const [calories, setCalories] = useState('');
   const [protein, setProtein] = useState('');
   const [carbs, setCarbs] = useState('');
   const [fats, setFats] = useState('');
+  const [isCached, setIsCached] = useState(false);
   const [estimating, setEstimating] = useState(false);
   const [logging, setLogging] = useState(false);
   const [estimateError, setEstimateError] = useState('');
   const [step, setStep] = useState<'describe' | 'confirm'>('describe');
+
+  React.useEffect(() => {
+    if (visible) {
+      if (initialCategory) setCategory(initialCategory);
+      if (initialDescription) {
+        setDescription(initialDescription);
+      }
+    }
+  }, [visible, initialCategory, initialDescription]);
 
   // ── Mode 2: Vision Photo State ──────────────────────────────────────────────
   const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
@@ -199,6 +213,7 @@ export const MealEntryModal: React.FC<MealEntryModalProps> = ({
       setProtein(String(est.protein_g ?? 0));
       setCarbs(String(est.carbs_g ?? 0));
       setFats(String(est.fats_g ?? 0));
+      setIsCached(Boolean(est.cached));
       setStep('confirm');
     } catch {
       setEstimateError('Could not estimate — check connection or enter manually.');

@@ -19,6 +19,7 @@ import { MacroPresetSelector } from '../components/strategy/MacroPresetSelector'
 import { MacroCyclingSchedule } from '../components/strategy/MacroCyclingSchedule';
 import { WeeklyCheckInModal } from '../components/strategy/WeeklyCheckInModal';
 import { ManualTargetEditorModal } from '../components/strategy/ManualTargetEditorModal';
+import { deriveMetabolicTargets } from '../utils/metabolism';
 
 export const StrategyScreen: React.FC = () => {
   const topInset = useSafeTopInset();
@@ -26,6 +27,7 @@ export const StrategyScreen: React.FC = () => {
 
   const {
     strategyProfile,
+    userProfile,
     strategyLoading,
     checkInLoading,
     lastCheckInResult,
@@ -52,12 +54,13 @@ export const StrategyScreen: React.FC = () => {
     }).start();
   }, [fetchStrategyProfile, chartAnim]);
 
-  const tdee = strategyProfile?.current_expenditure_tdee ?? 2640;
-  const trendDelta = strategyProfile?.expenditure_trend_delta ?? 65;
-  const targetCals = strategyProfile?.target_calories ?? 2400;
-  const targetProtein = strategyProfile?.target_protein_g ?? 160;
-  const targetCarbs = strategyProfile?.target_carbs_g ?? 250;
-  const targetFats = strategyProfile?.target_fats_g ?? 70;
+  const fallback = deriveMetabolicTargets(userProfile);
+  const tdee = strategyProfile?.current_expenditure_tdee ?? fallback.tdee;
+  const trendDelta = strategyProfile?.expenditure_trend_delta ?? 0;
+  const targetCals = strategyProfile?.target_calories ?? fallback.target_calories;
+  const targetProtein = strategyProfile?.target_protein_g ?? fallback.target_protein_g;
+  const targetCarbs = strategyProfile?.target_carbs_g ?? fallback.target_carbs_g;
+  const targetFats = strategyProfile?.target_fats_g ?? fallback.target_fats_g;
 
   useEffect(() => {
     Animated.sequence([

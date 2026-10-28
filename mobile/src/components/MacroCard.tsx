@@ -43,10 +43,10 @@ export const MacroCard: React.FC<MacroCardProps> = ({
   carbsLogged = 0,
   fatsLogged = 0,
   caloriesLogged = 0,
-  proteinTarget = 160,
-  carbsTarget = 250,
-  fatsTarget = 70,
-  caloriesTarget = 2400,
+  proteinTarget = 0,
+  carbsTarget = 0,
+  fatsTarget = 0,
+  caloriesTarget = 0,
   onLogMealPress,
 }) => {
   const calPct = caloriesTarget > 0 ? Math.min((caloriesLogged / caloriesTarget) * 100, 100) : 0;

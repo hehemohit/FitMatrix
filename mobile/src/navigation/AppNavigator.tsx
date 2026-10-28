@@ -9,6 +9,7 @@ import { CustomTabBar } from './CustomTabBar';
 import { QuickActionModal } from '../components/macrofactor/QuickActionModal';
 import { MealEntryModal } from '../components/MealEntryModal';
 import { WeighInModal } from '../components/macrofactor/WeighInModal';
+import { CoachBottomSheet } from '../components/coach/CoachBottomSheet';
 import { ActiveWorkoutScreen } from '../screens/workout/ActiveWorkoutScreen';
 import { WorkoutCompleteScreen } from '../screens/workout/WorkoutCompleteScreen';
 import { WorkoutNavigator } from '../screens/workout/WorkoutNavigator';
@@ -36,6 +37,7 @@ export const AppNavigator: React.FC = () => {
   const [quickActionVisible, setQuickActionVisible] = useState(false);
   const [mealModalVisible, setMealModalVisible] = useState(false);
   const [weighInModalVisible, setWeighInModalVisible] = useState(false);
+  const [coachModalVisible, setCoachModalVisible] = useState(false);
   const [workoutDashboardVisible, setWorkoutDashboardVisible] = useState(false);
   const [completedSummary, setCompletedSummary] = useState<WorkoutSummaryData | null>(null);
 
@@ -49,11 +51,13 @@ export const AppNavigator: React.FC = () => {
     return () => clearInterval(iv);
   }, [isActive, isPaused, tickWorkoutTimer]);
 
-  const handleSelectQuickAction = (action: 'meal' | 'weight' | 'workout') => {
+  const handleSelectQuickAction = (action: 'meal' | 'weight' | 'workout' | 'coach') => {
     if (action === 'meal') {
       setMealModalVisible(true);
     } else if (action === 'weight') {
       setWeighInModalVisible(true);
+    } else if (action === 'coach') {
+      setCoachModalVisible(true);
     } else if (action === 'workout') {
       if (!isActive) {
         setActiveDashboard('workout');
@@ -124,6 +128,12 @@ export const AppNavigator: React.FC = () => {
         onClose={() => setWeighInModalVisible(false)}
         onSave={weighIn}
         initialWeight={userProfile.weight_kg}
+      />
+
+      {/* Omniscient Coach Floating Bottom Sheet */}
+      <CoachBottomSheet
+        visible={coachModalVisible}
+        onClose={() => setCoachModalVisible(false)}
       />
 
 

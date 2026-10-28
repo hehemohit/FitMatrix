@@ -37,10 +37,10 @@ class MetabolicTargets(BaseModel):
     """Deterministic targets computed from UserProfileData via Mifflin-St Jeor."""
     bmr: float = 0.0          # Basal Metabolic Rate (kcal/day)
     tdee: float = 0.0         # Total Daily Energy Expenditure (kcal/day)
-    target_calories: int = 2400
-    target_protein_g: int = 160
-    target_carbs_g: int = 250
-    target_fats_g: int = 70
+    target_calories: int = 0
+    target_protein_g: int = 0
+    target_carbs_g: int = 0
+    target_fats_g: int = 0
     computed_at: Optional[datetime] = None
 
 

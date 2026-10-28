@@ -25,8 +25,10 @@ class RunBenchmarkRequest(BaseModel):
 
 
 @router.post("/run")
-async def trigger_eval_run(payload: RunBenchmarkRequest):
+async def trigger_eval_run(payload: Optional[RunBenchmarkRequest] = None):
     """Triggers an automated evaluation run against the golden test suite."""
+    if payload is None:
+        payload = RunBenchmarkRequest()
     try:
         summary = await execute_benchmark_run(
             model_name=payload.model_name,

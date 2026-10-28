@@ -6,19 +6,32 @@ class FitMatrixState(TypedDict):
     # Appends new messages without overwriting history
     messages: Annotated[List[BaseMessage], operator.add]
 
-    # Biometric inputs from mobile Health Connect
+    # Biometric inputs from mobile Health Connect / sensors
     steps_today: int
     sleep_minutes: int
     active_calories_burned: int
     resting_heart_rate_bpm: int
     logged_workouts: List[dict]
 
-    # Computed metrics
+    # Subjective recovery & strain inputs
+    muscle_soreness_rating: Optional[int]  # 1 (fresh) to 5 (trashed)
+    is_training_day: Optional[bool]        # True for workout day, False for rest day
+
+    # Computed physiological metrics
     readiness_score: int
-    fatigue_flag: Optional[str]
+    fatigue_flag: Optional[str]            # "nominal" | "high_fatigue"
+    prescribed_workout: Optional[str]
+
+    # Dynamic metabolic allotments (no static hardcoded defaults)
+    target_calories: Optional[int]
+    target_protein_g: Optional[int]
     remaining_calories: int
     remaining_protein_g: int
-    prescribed_workout: Optional[str]
+
+    # RP Hypertrophy Mesocycle Progression State
+    mesocycle_week: Optional[int]          # Week 1 to 6
+    mesocycle_phase: Optional[str]         # "accumulation" | "overreaching" | "deload"
+    target_rir: Optional[int]              # Reps In Reserve: 3 -> 2 -> 1 -> 0 -> 4 (deload)
 
     # Decoupled Structured State / Entity Profiles
     user_profile: dict  # {"dietary_preference": str, "allergies": List[str], "fitness_goal": str, ...}

@@ -40,14 +40,16 @@ import {
   updateScheduleTargets as apiUpdateScheduleTargets,
   updateManualTargets as apiUpdateManualTargets,
   performWeeklyCheckIn as apiPerformWeeklyCheckIn,
+  getAmbientBriefing,
 } from '../api/coachApi';
-import type { MealItem } from '../api/coachApi';
+import type { MealItem, AmbientBriefingData } from '../api/coachApi';
 import {
   generateWorkoutPlan,
   generateDietPlan,
   generateSleepGoal,
 } from '../api/agentClient';
 import { getHealthSnapshot, refreshHealthSnapshot } from '../api/healthConnect';
+import { deriveMetabolicTargets } from '../utils/metabolism';
 import type { ChatMessage } from '../components/ChatView';
 
 // Re-export ChatMessage so consumers can import from the store
@@ -135,6 +137,8 @@ interface TrainerState {
   workoutPlan: WorkoutPlan | null;
   dietPlan: DietPlan | null;
   sleepGoal: SleepGoal | null;
+  dailyBriefing: AmbientBriefingData | null;
+  briefingLoading: boolean;
 
   // ── Strategy Command Center ──
   strategyLoading: boolean;
@@ -152,6 +156,7 @@ interface TrainerState {
   saveProfile: (profile: UserProfile) => Promise<void>;
   logMeal: (meal: MealItem) => Promise<void>;
   syncTodayNutrition: () => Promise<void>;
+  syncDailyBriefing: (forceRefresh?: boolean) => Promise<void>;
   syncHabitsHistory: () => Promise<void>;
   weighIn: (weightKg: number) => Promise<void>;
   syncCurrentWeight: (weightKg: number) => void;
@@ -215,16 +220,15 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
 
   userProfile: hydrate<UserProfile>('user_profile', {}),
   dailyLog: hydrate<DailyLog>('daily_log', {}),
-  metabolicTargets: hydrate<MetabolicTargets>('metabolic_targets', {
-    bmr: 0, tdee: 0,
-    target_calories: 2400,
-    target_protein_g: 160,
-    target_carbs_g: 250,
-    target_fats_g: 70,
-  }),
+  metabolicTargets: hydrate<MetabolicTargets>(
+    'metabolic_targets',
+    deriveMetabolicTargets(hydrate<UserProfile>('user_profile', {}))
+  ),
   workoutPlan: hydrate<WorkoutPlan | null>('workout_plan', null),
   dietPlan: hydrate<DietPlan | null>('diet_plan', null),
   sleepGoal: hydrate<SleepGoal | null>('sleep_goal', null),
+  dailyBriefing: hydrate<AmbientBriefingData | null>('daily_briefing', null),
+  briefingLoading: false,
   strategyProfile: hydrate<StrategyProfile | null>('strategy_profile', null),
 
   // ── _applyReadiness: fires /api/v1/readiness from a fresh snapshot ──
@@ -541,8 +545,8 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
           date_id: todayStr,
           calories_logged: 0,
           protein_logged_g: 0,
-          calorie_goal: get().userProfile.target_calories || get().metabolicTargets.target_calories || 2400,
-          protein_goal_g: get().userProfile.target_protein_g || get().metabolicTargets.target_protein_g || 160,
+          calorie_goal: get().userProfile.target_calories || get().metabolicTargets.target_calories || deriveMetabolicTargets(get().userProfile).target_calories,
+          protein_goal_g: get().userProfile.target_protein_g || get().metabolicTargets.target_protein_g || deriveMetabolicTargets(get().userProfile).target_protein_g,
         };
         persist('daily_log', rolloverLog, activeId);
         persist('today_meals', [], activeId);
@@ -553,6 +557,47 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
       await get().syncHabitsHistory();
     } catch (err) {
       console.warn('[syncTodayNutrition] Error:', err);
+    }
+  },
+
+  // ── syncDailyBriefing: Idempotent once-per-day ambient physiological briefing ──
+  syncDailyBriefing: async (forceRefresh = false) => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const cached = get().dailyBriefing;
+    // Optimization Guardrail: If already synthesized today and user did not force refresh, 0 API calls!
+    if (!forceRefresh && cached && cached.date_id === todayStr) {
+      return;
+    }
+
+    set({ briefingLoading: true });
+    try {
+      const activeId = getActiveUserId();
+      const snapshot = get().healthSnapshot;
+      const data = await getAmbientBriefing({
+        user_id: activeId,
+        date_id: todayStr,
+        force_refresh: forceRefresh,
+        steps_today: snapshot?.steps ?? 0,
+        sleep_minutes: (snapshot?.sleepMinutes && snapshot.sleepMinutes > 0) ? snapshot.sleepMinutes : 420,
+        active_calories_burned: snapshot?.activeCaloriesBurned ?? 0,
+        resting_heart_rate_bpm: snapshot?.restingHeartRateBpm ?? 0,
+        user_profile: get().userProfile as Record<string, unknown>,
+        daily_log: get().dailyLog as Record<string, unknown>,
+      });
+
+      persist('daily_briefing', data, activeId);
+      set({
+        dailyBriefing: data,
+        briefingLoading: false,
+        coachState: {
+          readiness_score: data.readiness_score,
+          fatigue_flag: data.fatigue_flag,
+          prescribed_workout: data.prescribed_workout,
+        },
+      });
+    } catch (err) {
+      console.warn('[syncDailyBriefing] Error:', err);
+      set({ briefingLoading: false });
     }
   },
 
@@ -826,16 +871,15 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
       todayMeals: hydrate<MealItem[]>('today_meals', [], uid),
       userProfile: hydrate<UserProfile>('user_profile', {}, uid),
       dailyLog: hydrate<DailyLog>('daily_log', {}, uid),
-      metabolicTargets: hydrate<MetabolicTargets>('metabolic_targets', {
-        bmr: 0, tdee: 0,
-        target_calories: 2400,
-        target_protein_g: 160,
-        target_carbs_g: 250,
-        target_fats_g: 70,
-      }, uid),
+      metabolicTargets: hydrate<MetabolicTargets>(
+        'metabolic_targets',
+        deriveMetabolicTargets(hydrate<UserProfile>('user_profile', {}, uid)),
+        uid
+      ),
       workoutPlan: hydrate<WorkoutPlan | null>('workout_plan', null, uid),
       dietPlan: hydrate<DietPlan | null>('diet_plan', null, uid),
       sleepGoal: hydrate<SleepGoal | null>('sleep_goal', null, uid),
+      dailyBriefing: hydrate<AmbientBriefingData | null>('daily_briefing', null, uid),
       strategyProfile: hydrate<StrategyProfile | null>('strategy_profile', null, uid),
     });
   },
@@ -854,16 +898,11 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
       weighInRecords: [],
       userProfile: {},
       dailyLog: {},
-      metabolicTargets: {
-        bmr: 0, tdee: 0,
-        target_calories: 2400,
-        target_protein_g: 160,
-        target_carbs_g: 250,
-        target_fats_g: 70,
-      },
+      metabolicTargets: deriveMetabolicTargets({}),
       workoutPlan: null,
       dietPlan: null,
       sleepGoal: null,
+      dailyBriefing: null,
       strategyProfile: null,
       lastCheckInResult: null,
       checkInModalVisible: false,

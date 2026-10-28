@@ -12,7 +12,7 @@ import { colors } from '../../theme/colors';
 interface QuickActionModalProps {
   visible: boolean;
   onClose: () => void;
-  onSelectAction: (action: 'meal' | 'weight' | 'workout') => void;
+  onSelectAction: (action: 'meal' | 'weight' | 'workout' | 'coach') => void;
 }
 
 export const QuickActionModal: React.FC<QuickActionModalProps> = ({
@@ -20,7 +20,7 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
   onClose,
   onSelectAction,
 }) => {
-  const handleAction = (action: 'meal' | 'weight' | 'workout') => {
+  const handleAction = (action: 'meal' | 'weight' | 'workout' | 'coach') => {
     onClose();
     setTimeout(() => {
       onSelectAction(action);
@@ -77,6 +77,21 @@ export const QuickActionModal: React.FC<QuickActionModalProps> = ({
                 <View style={styles.actionTextCol}>
                   <Text style={styles.actionLabel}>Log Workout</Text>
                   <Text style={styles.actionDesc}>Check-in training volume & RPE</Text>
+                </View>
+                <Text style={styles.chevron}>›</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.actionItem}
+                onPress={() => handleAction('coach')}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.iconCircle, { backgroundColor: '#8a2be222' }]}>
+                  <Text style={styles.actionEmoji}>🤖</Text>
+                </View>
+                <View style={styles.actionTextCol}>
+                  <Text style={styles.actionLabel}>Ask Omniscient Coach</Text>
+                  <Text style={styles.actionDesc}>Biometric guidance, recovery, or diet queries</Text>
                 </View>
                 <Text style={styles.chevron}>›</Text>
               </TouchableOpacity>

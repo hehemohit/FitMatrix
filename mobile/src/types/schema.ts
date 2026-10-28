@@ -15,6 +15,10 @@ export interface UserProfile {
   age?: number;
   activity_level?: string;
   unit?: 'kg' | 'lb';
+  // Mesocycle Periodization State (RP Hypertrophy standards)
+  mesocycle_week?: number;
+  mesocycle_phase?: 'accumulation' | 'intensification' | 'overreaching' | 'deload';
+  target_rir?: number;
 }
 
 export interface DailyLog {

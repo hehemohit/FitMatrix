@@ -304,7 +304,19 @@ async def get_strategy_profile(
             starting_weight = current_weight + 3.6
             target_weight = 75.0
             rate_percent = -0.75
-            tdee = 2640
+            
+            # Dynamic TDEE initialization from user profile without hardcoded constants
+            if user_doc and user_doc.targets and user_doc.targets.tdee > 0:
+                tdee = int(user_doc.targets.tdee)
+            elif user_doc and user_doc.profile:
+                from app.core.metabolism import compute_targets
+                targets = compute_targets(user_doc.profile)
+                tdee = int(targets.tdee)
+            else:
+                from app.core.metabolism import compute_targets
+                from app.models.documents import UserProfileData
+                targets = compute_targets(UserProfileData(weight_kg=current_weight, height_cm=175.0, age=30, gender="male", activity_level="moderately_active"))
+                tdee = int(targets.tdee)
 
             weekly_delta, weeks, eta = calculate_eta_and_delta(
                 goal_type, current_weight, target_weight, rate_percent
@@ -625,11 +637,29 @@ async def perform_weekly_check_in(
             "fats_g": profile.target_fats_g,
         }
 
-        # Metabolic adjustment: Dynamic simulation / trend based on history
-        # Trend indicates adaptive shift (e.g. +35 kcal expenditure adaptation)
-        delta_tdee = profile.expenditure_trend_delta if profile.expenditure_trend_delta else 40
-        # Gentle smoothing: new TDEE adjusts towards latest trend
-        new_tdee = old_tdee + round(delta_tdee * 0.5)
+        # Metabolic adjustment: Calculate true dynamic expenditure from real 14-day logs
+        recent_logs = await DailyLogDocument.find(
+            DailyLogDocument.user_id == target_user_id
+        ).sort(-DailyLogDocument.date_id).limit(14).to_list()
+
+        weights = [l.scale_weight_kg for l in reversed(recent_logs) if l.scale_weight_kg and l.scale_weight_kg > 0]
+        calories_logged = [l.total_calories_consumed for l in recent_logs if l.total_calories_consumed and l.total_calories_consumed > 0]
+
+        if len(weights) >= 2 and len(calories_logged) >= 3:
+            from app.core.metabolism import calculate_ewma_weight_series, calculate_dynamic_tdee
+            smoothed_weights = calculate_ewma_weight_series(weights, alpha=0.1)
+            avg_cals = sum(calories_logged) / len(calories_logged)
+            calculated_tdee = calculate_dynamic_tdee(
+                avg_daily_calories_logged=avg_cals,
+                weight_start_smoothed_kg=smoothed_weights[0],
+                weight_end_smoothed_kg=smoothed_weights[-1],
+                days_elapsed=len(weights)
+            )
+            delta_tdee = round(calculated_tdee - old_tdee)
+            new_tdee = round(old_tdee + delta_tdee * 0.4)
+        else:
+            delta_tdee = profile.expenditure_trend_delta if profile.expenditure_trend_delta else 30
+            new_tdee = old_tdee + round(delta_tdee * 0.5)
 
         # Update expenditure history array
         history = list(profile.expenditure_history_14d) if profile.expenditure_history_14d else [old_tdee]*14

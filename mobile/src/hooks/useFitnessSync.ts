@@ -12,22 +12,25 @@ import { useTrainerStore } from '../store/useTrainerStore';
 export const useFitnessSync = (): void => {
   const syncTodayNutrition = useTrainerStore((s) => s.syncTodayNutrition);
   const syncHealth = useTrainerStore((s) => s.syncHealth);
+  const syncDailyBriefing = useTrainerStore((s) => s.syncDailyBriefing);
 
   useEffect(() => {
     // 1. Initial sync on mount
     syncTodayNutrition();
     syncHealth();
+    syncDailyBriefing();
 
     // 2. Sync whenever app comes back from background
     const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
       if (nextState === 'active') {
         syncTodayNutrition();
         syncHealth();
+        syncDailyBriefing();
       }
     });
 
     return () => {
       subscription.remove();
     };
-  }, [syncTodayNutrition, syncHealth]);
+  }, [syncTodayNutrition, syncHealth, syncDailyBriefing]);
 };

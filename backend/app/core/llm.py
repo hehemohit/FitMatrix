@@ -19,6 +19,14 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+# Suppress harmless Google GenAI automatic function calling (AFC) warnings
+logging.getLogger("google.genai").setLevel(logging.ERROR)
+try:
+    from google.genai.models import Models
+    Models._logged_afc_warning = True
+except Exception:
+    pass
+
 # ---------------------------------------------------------------------------
 # Provider constructors
 # ---------------------------------------------------------------------------
@@ -35,7 +43,7 @@ def _groq_model(temperature: float):
 
 def _gemini_model(temperature: float):
     from langchain_google_genai import ChatGoogleGenerativeAI
-    model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+    model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
     return ChatGoogleGenerativeAI(
         model=model,
         temperature=temperature,

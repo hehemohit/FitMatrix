@@ -24,10 +24,12 @@ import { TopFadeOverlay } from '../components/macrofactor/TopFadeOverlay';
 import { MealEntryModal } from '../components/MealEntryModal';
 import { WeighInModal } from '../components/macrofactor/WeighInModal';
 import { useFitnessSync } from '../hooks/useFitnessSync';
+import { deriveMetabolicTargets } from '../utils/metabolism';
 
 export const DashboardScreen: React.FC = () => {
   // Automatic foreground and mount synchronization
   useFitnessSync();
+  const { setActiveDashboard } = useDashboardTabStore();
 
   const {
     healthSnapshot,
@@ -46,6 +48,9 @@ export const DashboardScreen: React.FC = () => {
     logMeal,
     weighIn,
     syncTodayNutrition,
+    dailyBriefing,
+    briefingLoading,
+    syncDailyBriefing,
   } = useTrainerStore();
 
   const [mode, setMode] = useState<'consumed' | 'remaining'>('consumed');
@@ -55,18 +60,19 @@ export const DashboardScreen: React.FC = () => {
   const isInitializing = (healthLoading || readinessLoading) && healthSnapshot === null;
   const isRefreshing = healthLoading && healthSnapshot !== null;
 
-  // Calorie & Macro calculations from metabolicTargets / userProfile / dailyLog
-  const targetCalories = userProfile.target_calories || metabolicTargets.target_calories || 2400;
+  // Calorie & Macro calculations dynamically derived from metabolicTargets / userProfile / dailyLog
+  const fallbackTargets = deriveMetabolicTargets(userProfile);
+  const targetCalories = userProfile.target_calories || metabolicTargets.target_calories || fallbackTargets.target_calories;
   const consumedCalories = dailyLog.calories_logged || 0;
 
-  const targetProtein = userProfile.target_protein_g || metabolicTargets.target_protein_g || 160;
+  const targetProtein = userProfile.target_protein_g || metabolicTargets.target_protein_g || fallbackTargets.target_protein_g;
   const consumedProtein = dailyLog.protein_logged_g || 0;
 
-  const targetFats = metabolicTargets.target_fats_g || 70;
+  const targetFats = metabolicTargets.target_fats_g || fallbackTargets.target_fats_g;
   // Calculate fats from logged meals if available, otherwise estimate
   const consumedFats = todayMeals.reduce((acc, m) => acc + (m.fats_g || 0), 0);
 
-  const targetCarbs = metabolicTargets.target_carbs_g || 250;
+  const targetCarbs = metabolicTargets.target_carbs_g || fallbackTargets.target_carbs_g;
   const consumedCarbs = todayMeals.reduce((acc, m) => acc + (m.carbs_g || 0), 0);
 
   const sleepHours = healthSnapshot && healthSnapshot.sleepMinutes > 0
@@ -185,6 +191,11 @@ export const DashboardScreen: React.FC = () => {
           sleepHours={sleepHours}
           stepsToday={healthSnapshot?.steps}
           restingHeartRate={healthSnapshot?.restingHeartRateBpm}
+          dailyBriefing={dailyBriefing}
+          briefingLoading={briefingLoading}
+          onRefreshBriefing={() => syncDailyBriefing(true)}
+          onLaunchWorkout={() => setActiveDashboard('workout')}
+          onLogMealPress={() => setMealModalVisible(true)}
         />
       </ScrollView>
 

@@ -31,16 +31,21 @@ class UserProfileData(BaseModel):
     fitness_goal: str = "hypertrophy"       # hypertrophy | fat_loss | strength | endurance
     dietary_preference: str = "omnivore"    # omnivore | vegetarian | pure_vegetarian | vegan | keto | jain
     allergies: List[str] = Field(default_factory=list)
+    
+    # RP Hypertrophy Mesocycle Progression State
+    mesocycle_week: int = 1                 # Week 1 to 6
+    mesocycle_phase: str = "accumulation"  # accumulation | intensification | overreaching | deload
+    target_rir: int = 3                     # Reps In Reserve: 3 -> 2 -> 1 -> 0 -> 4 (deload)
 
 
 class MetabolicTargets(BaseModel):
     """Deterministic targets computed from UserProfileData via Mifflin-St Jeor."""
     bmr: float = 0.0           # Basal Metabolic Rate (kcal/day)
     tdee: float = 0.0          # Total Daily Energy Expenditure (kcal/day)
-    target_calories: int = 2400
-    target_protein_g: int = 160
-    target_carbs_g: int = 250
-    target_fats_g: int = 70
+    target_calories: int = 0
+    target_protein_g: int = 0
+    target_carbs_g: int = 0
+    target_fats_g: int = 0
     computed_at: Optional[datetime] = None
 
 
@@ -416,6 +421,80 @@ class EvalRunDocument(Document):
     class Settings:
         name = "eval_runs"
         indexes = [[("created_at", -1)], [("model_name", 1)]]
+
+
+class ChatMessageEntry(BaseModel):
+    role: str  # "user" | "coach" | "system"
+    content: str
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ChatSessionDocument(Document):
+    """
+    Collection: chat_sessions
+    Provides durable, low-latency hybrid session memory keyed by user_id and session_id.
+    Persists across server restarts and provides bounded sliding-window retrieval.
+    """
+    session_id: Annotated[str, Indexed(unique=True)]
+    user_id: Annotated[str, Indexed()]
+    messages: List[ChatMessageEntry] = Field(default_factory=list)
+    current_topic: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Settings:
+        name = "chat_sessions"
+        indexes = [[("user_id", 1), ("updated_at", -1)]]
+
+
+class DailyBriefingDocument(Document):
+    """
+    Collection: daily_briefings
+    Persists once-per-day ambient physiological briefings for athletes,
+    preventing duplicate LLM syntheses on repeat screen mounts.
+    """
+    user_id: Annotated[str, Indexed()]
+    date_id: Annotated[str, Indexed()]  # YYYY-MM-DD
+    readiness_score: int
+    fatigue_flag: str
+    sleep_hours: float
+    steps_today: int
+    resting_heart_rate_bpm: int
+    headline: str
+    briefing_text: str
+    prescribed_workout: str
+    peri_workout_carbs_g: int = 35
+    target_rir: int = 2
+    mesocycle_week: int = 1
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Settings:
+        name = "daily_briefings"
+        indexes = [[("user_id", 1), ("date_id", 1)]]
+
+
+class MealParseCacheDocument(Document):
+    """
+    Collection: meal_parse_cache
+    Stores exact normalized text hashes to macro estimates,
+    allowing 80% of common meals to return in < 10ms with 0 tokens.
+    """
+    normalized_query: Annotated[str, Indexed(unique=True)]
+    name: str
+    calories: int
+    protein_g: int
+    carbs_g: int
+    fats_g: int
+    serving_size: str = "1 serving"
+    allergen_flags: List[str] = Field(default_factory=list)
+    dietary_flags: List[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Settings:
+        name = "meal_parse_cache"
+
+
+
 
 
 

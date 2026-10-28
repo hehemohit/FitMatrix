@@ -102,6 +102,25 @@ export const sendBiometricsAndMessage = async (
   return response.data;
 };
 
+export interface ChatHistoryResponse {
+  status: string;
+  messages: Array<{
+    role: 'user' | 'coach';
+    content: string;
+    timestamp?: string;
+  }>;
+  current_topic?: string | null;
+}
+
+export const getChatHistory = async (userId: string = 'local_user'): Promise<ChatHistoryResponse> => {
+  try {
+    const response = await apiClient.get<ChatHistoryResponse>(`/api/v1/chat/history?user_id=${encodeURIComponent(userId)}`);
+    return response.data;
+  } catch (err) {
+    return { status: 'fallback', messages: [], current_topic: null };
+  }
+};
+
 export interface ReadinessResponse {
   readiness_score: number;
   fatigue_flag: string;
@@ -256,7 +275,7 @@ export const getTodayNutrition = async (userId: string): Promise<NutritionDay> =
 
 export const estimateMealMacros = async (
   foodDescription: string,
-): Promise<{ name: string; calories: number; protein_g: number; carbs_g: number; fats_g: number }> => {
+): Promise<{ name: string; calories: number; protein_g: number; carbs_g: number; fats_g: number; serving_size?: string; cached?: boolean }> => {
   const { data } = await apiClient.post('/api/v1/nutrition/estimate', { food_description: foodDescription });
   return data;
 };
@@ -556,7 +575,7 @@ export const updateManualTargets = async (
     '/api/v1/strategy/manual-targets',
     {
       user_id: targetId,
-      ...(targets || { target_calories: 2400, target_protein_g: 160, target_carbs_g: 250, target_fats_g: 70 }),
+      ...(targets || {}),
     }
   );
   return data.data;
@@ -570,6 +589,50 @@ export const performWeeklyCheckIn = async (userId?: string): Promise<CheckInResu
   );
   return data;
 };
+
+// ─── Ambient Morning Physiological Briefing API ───────────────────────────────
+
+export interface AmbientBriefingData {
+  user_id: string;
+  date_id: string;
+  readiness_score: number;
+  fatigue_flag: string;
+  sleep_hours: number;
+  steps_today: number;
+  resting_heart_rate_bpm: number;
+  headline: string;
+  briefing_text: string;
+  prescribed_workout: string;
+  peri_workout_carbs_g: number;
+  target_rir: number;
+  mesocycle_week: number;
+  cached: boolean;
+}
+
+export const getAmbientBriefing = async (
+  params: {
+    user_id?: string;
+    date_id?: string;
+    force_refresh?: boolean;
+    steps_today?: number;
+    sleep_minutes?: number;
+    active_calories_burned?: number;
+    resting_heart_rate_bpm?: number;
+    user_profile?: Record<string, unknown>;
+    daily_log?: Record<string, unknown>;
+  } = {}
+): Promise<AmbientBriefingData> => {
+  const targetId = params.user_id || getActiveUserIdFromAuth();
+  const { data } = await apiClient.post<AmbientBriefingData>(
+    '/api/v1/cards/ambient-briefing',
+    {
+      user_id: targetId,
+      ...params,
+    }
+  );
+  return data;
+};
+
 
 // ─── Workout Universe Sync API ────────────────────────────────────────────────
 

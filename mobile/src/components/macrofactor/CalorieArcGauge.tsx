@@ -26,7 +26,7 @@ export const CalorieArcGauge: React.FC<CalorieArcGaugeProps> = ({
   mode = 'consumed',
   onToggleMode,
 }) => {
-  const safeTarget = target > 0 ? target : 2400;
+  const safeTarget = target > 0 ? target : Math.max(consumed, 1);
   const remaining = Math.max(0, safeTarget - consumed);
 
   // Values depending on active mode

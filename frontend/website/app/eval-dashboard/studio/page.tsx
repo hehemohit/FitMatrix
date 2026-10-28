@@ -84,6 +84,26 @@ const PRESETS = [
       test_message: "Felt incredible sleeping last night. Ready to go all out today!",
     },
   },
+  {
+    id: "meso_deload",
+    name: "🔄 Week 6 Deload",
+    desc: "End of mesocycle fatigue. Enforces volume reduction and submaximal RPE 6-7.",
+    data: {
+      sleep_minutes: 410,
+      steps_today: 7000,
+      resting_heart_rate_bpm: 68,
+      active_calories_burned: 320,
+      user_profile: {
+        weight_kg: 77,
+        height_cm: 178,
+        fitness_goal: "hypertrophy",
+        dietary_preference: "pure_vegetarian",
+        allergies: [],
+      },
+      daily_log: { calories_logged: 1500, protein_logged_g: 90 },
+      test_message: "It is week 6 of my mesocycle and my joints feel beat up. What should I do?",
+    },
+  },
 ];
 
 export default function ContextStudioPage() {
@@ -95,6 +115,8 @@ export default function ContextStudioPage() {
   const [weightKg, setWeightKg] = useState(76);
   const [dietaryPref, setDietaryPref] = useState("pure_vegetarian");
   const [fitnessGoal, setFitnessGoal] = useState("hypertrophy");
+  const [mesoWeek, setMesoWeek] = useState(1);
+  const [sorenessRating, setSorenessRating] = useState(1);
   const [allergiesText, setAllergiesText] = useState("peanuts");
   const [userMessage, setUserMessage] = useState("What workout should I do today?");
 
@@ -136,10 +158,12 @@ export default function ContextStudioPage() {
     steps_today: Number(stepsToday),
     resting_heart_rate_bpm: Number(rhr),
     active_calories_burned: Number(activeCalories),
+    muscle_soreness_rating: Number(sorenessRating),
     user_profile: {
       weight_kg: Number(weightKg),
       dietary_preference: dietaryPref,
       fitness_goal: fitnessGoal,
+      mesocycle_week: Number(mesoWeek),
       allergies: allergiesText ? allergiesText.split(",").map((s) => s.trim()) : [],
     },
     daily_log: {
@@ -157,6 +181,8 @@ export default function ContextStudioPage() {
     setWeightKg(d.user_profile.weight_kg);
     setDietaryPref(d.user_profile.dietary_preference);
     setFitnessGoal(d.user_profile.fitness_goal);
+    setMesoWeek((d.user_profile as any).mesocycle_week || 1);
+    setSorenessRating((d as any).muscle_soreness_rating || 1);
     setAllergiesText(d.user_profile.allergies.join(", "));
     setUserMessage(d.test_message);
     setAgentResponse(null);

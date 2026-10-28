@@ -1,9 +1,89 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 
+interface EvalRunSummary {
+  run_id: string;
+  model_name: string;
+  prompt_version: string;
+  status: string;
+  total_cases: number;
+  passed_cases: number;
+  pass_rate: number;
+  avg_latency_ms: number;
+  total_cost_usd: number;
+  avg_judge_score: number;
+  created_at: string;
+}
+
+const DEFAULT_LEADERBOARD = [
+  {
+    run_id: "baseline_prod",
+    model_name: "Gemini 1.5 Flash",
+    prompt_version: "v2.0 Autoregulation",
+    pass_rate: 100.0,
+    avg_judge_score: 4.85,
+    avg_latency_ms: 1180,
+    cost_per_1k: "$0.063",
+    status_label: "ACTIVE",
+    status_color: "emerald",
+    subtitle: "Active Production Prompt (MongoDB Atlas)",
+  },
+  {
+    run_id: "candidate_exp",
+    model_name: "Gemini 2.0 Flash",
+    prompt_version: "Candidate v2.1",
+    pass_rate: 100.0,
+    avg_judge_score: 4.90,
+    avg_latency_ms: 890,
+    cost_per_1k: "$0.082",
+    status_label: "STAGING",
+    status_color: "blue",
+    subtitle: "Candidate Evaluation Suite",
+  },
+  {
+    run_id: "legacy_v1",
+    model_name: "Gemini 1.5 Flash",
+    prompt_version: "v1.0 Baseline",
+    pass_rate: 83.3,
+    avg_judge_score: 4.40,
+    avg_latency_ms: 1240,
+    cost_per_1k: "$0.063",
+    status_label: "DEPRECATED",
+    status_color: "zinc",
+    subtitle: "Previous Legacy Release",
+  },
+];
+
 export default function EvalDashboardOverview() {
+  const [realRuns, setRealRuns] = useState<EvalRunSummary[]>([]);
+  const [isLiveConnected, setIsLiveConnected] = useState(false);
+
+  useEffect(() => {
+    // 1. Instant hydration from localStorage for zero-flicker reload
+    const cached = localStorage.getItem("fitmatrix_latest_benchmark_run");
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        setRealRuns([parsed]);
+      } catch {}
+    }
+
+    // 2. Fetch real runs from backend
+    fetch("http://localhost:8000/api/v1/eval/runs")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.runs && data.runs.length > 0) {
+          setRealRuns(data.runs);
+          setIsLiveConnected(true);
+        }
+      })
+      .catch(() => {
+        setIsLiveConnected(false);
+      });
+  }, []);
+
   return (
     <div className="space-y-10">
       {/* Hero Banner */}
@@ -12,7 +92,7 @@ export default function EvalDashboardOverview() {
         <div className="max-w-3xl space-y-4">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-950/80 border border-cyan-800/80 text-cyan-400 text-xs font-mono">
             <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-            Active Observability & Guardrail Harness
+            {isLiveConnected ? "Connected to Live Backend & MongoDB Atlas" : "Active Observability & Guardrail Harness"}
           </div>
           <h1 className="text-3xl sm:text-4xl font-extrabold font-['Space_Grotesk'] text-white tracking-tight">
             FitMatrix Multi-Agent Intelligence & Evaluation Studio
@@ -73,7 +153,7 @@ export default function EvalDashboardOverview() {
 
         <Link
           href="/eval-dashboard/cards"
-          className="p-6 rounded-2xl bg-[#0f1217] hover:bg-[#131720] border border-[#202530] hover:border-cyan-500/40 transition-all group space-y-3"
+          className="p-6 rounded-2xl bg-[#0f1217] hover:bg-[#131720] border border-[#202530] hover:border-purple-500/40 transition-all group space-y-3"
         >
           <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-400 flex items-center justify-center group-hover:scale-105 transition-transform">
             <span className="material-symbols-outlined text-xl">view_carousel</span>
@@ -134,11 +214,26 @@ export default function EvalDashboardOverview() {
 
       {/* Leaderboard Table */}
       <div className="bg-[#0f1217] rounded-2xl border border-[#202530] overflow-hidden">
-        <div className="p-5 border-b border-[#202530] flex items-center justify-between">
-          <h2 className="text-sm font-mono uppercase tracking-wider text-cyan-400">
-            Model & Prompt Configuration Leaderboard
-          </h2>
-          <span className="text-xs font-mono text-zinc-500">Ranked by Pass Rate & Judge Score</span>
+        <div className="p-5 border-b border-[#202530] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-mono uppercase tracking-wider text-cyan-400 flex items-center gap-2">
+              Model & Prompt Configuration Leaderboard
+              {realRuns.length > 0 && (
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
+                  LIVE MONGO DATA ({realRuns.length} runs)
+                </span>
+              )}
+            </h2>
+            <p className="text-[11px] text-zinc-500 font-mono mt-0.5">
+              Ranked by deterministic pass rate, LLM judge score, and token economics
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono text-zinc-500">
+              {realRuns.length > 0 ? "Showing Real Benchmark Runs" : "Showing Baseline Reference Set"}
+            </span>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -154,60 +249,81 @@ export default function EvalDashboardOverview() {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#1b2029]">
-              <tr className="hover:bg-[#131720] transition-colors">
-                <td className="p-4 font-semibold text-zinc-200">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                    <span>Gemini 1.5 Flash (v2.0 Autoregulation)</span>
-                  </div>
-                  <div className="text-[10px] text-zinc-500 mt-0.5 font-mono">Active Production Prompt</div>
-                </td>
-                <td className="p-4 font-bold text-emerald-400">100.0%</td>
-                <td className="p-4 font-bold text-cyan-400">4.85 / 5.0</td>
-                <td className="p-4 text-zinc-300">1,180ms</td>
-                <td className="p-4 text-amber-400">$0.063</td>
-                <td className="p-4 text-right">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800">
-                    ACTIVE
-                  </span>
-                </td>
-              </tr>
-              <tr className="hover:bg-[#131720] transition-colors">
-                <td className="p-4 font-semibold text-zinc-200">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-blue-400" />
-                    <span>Gemini 2.0 Flash (Experimental)</span>
-                  </div>
-                  <div className="text-[10px] text-zinc-500 mt-0.5 font-mono">Candidate v2.1</div>
-                </td>
-                <td className="p-4 font-bold text-emerald-400">100.0%</td>
-                <td className="p-4 font-bold text-cyan-400">4.90 / 5.0</td>
-                <td className="p-4 text-zinc-300">890ms</td>
-                <td className="p-4 text-amber-400">$0.082</td>
-                <td className="p-4 text-right">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-950 text-blue-400 border border-blue-800">
-                    STAGING
-                  </span>
-                </td>
-              </tr>
-              <tr className="hover:bg-[#131720] transition-colors">
-                <td className="p-4 font-semibold text-zinc-200">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-zinc-500" />
-                    <span>Gemini 1.5 Flash (v1.0 Baseline)</span>
-                  </div>
-                  <div className="text-[10px] text-zinc-500 mt-0.5 font-mono">Previous Release</div>
-                </td>
-                <td className="p-4 font-bold text-zinc-400">83.3%</td>
-                <td className="p-4 font-bold text-zinc-400">4.40 / 5.0</td>
-                <td className="p-4 text-zinc-300">1,240ms</td>
-                <td className="p-4 text-amber-400">$0.063</td>
-                <td className="p-4 text-right">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-800 text-zinc-400">
-                    DEPRECATED
-                  </span>
-                </td>
-              </tr>
+              {realRuns.length > 0
+                ? realRuns.map((run, i) => (
+                    <tr key={run.run_id} className="hover:bg-[#131720] transition-colors">
+                      <td className="p-4 font-semibold text-zinc-200">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`w-2 h-2 rounded-full ${
+                              i === 0 ? "bg-emerald-400" : "bg-cyan-400"
+                            }`}
+                          />
+                          <span>
+                            {run.model_name} ({run.prompt_version})
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-zinc-500 mt-0.5 font-mono">
+                          Run ID: {run.run_id} • {new Date(run.created_at).toLocaleDateString()}
+                        </div>
+                      </td>
+                      <td className="p-4 font-bold text-emerald-400">{run.pass_rate}%</td>
+                      <td className="p-4 font-bold text-cyan-400">{run.avg_judge_score} / 5.0</td>
+                      <td className="p-4 text-zinc-300">{run.avg_latency_ms}ms</td>
+                      <td className="p-4 text-amber-400">
+                        ${(run.total_cost_usd * (1000 / Math.max(1, run.total_cases))).toFixed(4)}
+                      </td>
+                      <td className="p-4 text-right">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            i === 0
+                              ? "bg-emerald-950 text-emerald-400 border border-emerald-800"
+                              : "bg-blue-950 text-blue-400 border border-blue-800"
+                          }`}
+                        >
+                          {i === 0 ? "ACTIVE" : "RECORDED"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                : DEFAULT_LEADERBOARD.map((item) => (
+                    <tr key={item.run_id} className="hover:bg-[#131720] transition-colors">
+                      <td className="p-4 font-semibold text-zinc-200">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`w-2 h-2 rounded-full ${
+                              item.status_color === "emerald"
+                                ? "bg-emerald-400"
+                                : item.status_color === "blue"
+                                ? "bg-blue-400"
+                                : "bg-zinc-500"
+                            }`}
+                          />
+                          <span>
+                            {item.model_name} ({item.prompt_version})
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-zinc-500 mt-0.5 font-mono">{item.subtitle}</div>
+                      </td>
+                      <td className="p-4 font-bold text-emerald-400">{item.pass_rate}%</td>
+                      <td className="p-4 font-bold text-cyan-400">{item.avg_judge_score} / 5.0</td>
+                      <td className="p-4 text-zinc-300">{item.avg_latency_ms}ms</td>
+                      <td className="p-4 text-amber-400">{item.cost_per_1k}</td>
+                      <td className="p-4 text-right">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            item.status_color === "emerald"
+                              ? "bg-emerald-950 text-emerald-400 border border-emerald-800"
+                              : item.status_color === "blue"
+                              ? "bg-blue-950 text-blue-400 border border-blue-800"
+                              : "bg-zinc-800 text-zinc-400"
+                          }`}
+                        >
+                          {item.status_label}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
             </tbody>
           </table>
         </div>
@@ -215,4 +331,3 @@ export default function EvalDashboardOverview() {
     </div>
   );
 }
-

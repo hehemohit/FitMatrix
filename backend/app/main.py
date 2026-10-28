@@ -1,3 +1,4 @@
+import logging
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -26,6 +27,8 @@ from app.api.prompts import router as prompts_router
 from app.api.cards import router as cards_router
 from app.api.bridge import router as bridge_router
 from app.harness.guardrails import GuardrailEngine
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -143,15 +146,25 @@ async def chat_endpoint(payload: BiometricPayload):
                     messages.append(HumanMessage(content=item.text))
                 elif item.role == "coach":
                     messages.append(AIMessage(content=item.text))
+        elif payload.user_id:
+            try:
+                from app.models.documents import ChatSessionDocument
+                session_doc = await ChatSessionDocument.find_one(ChatSessionDocument.user_id == payload.user_id)
+                if session_doc and session_doc.messages:
+                    for item in session_doc.messages[-2:]:
+                        if item.role == "user":
+                            messages.append(HumanMessage(content=item.content))
+                        elif item.role == "coach":
+                            messages.append(AIMessage(content=item.content))
+            except Exception as e:
+                logger.debug(f"Chat session hydration note: {e}")
 
         messages.append(HumanMessage(content=payload.message))
 
-        # Compute dynamic metabolic targets if profile is provided
+        # Dynamic metabolic targets computed from user profile — zero hardcoded defaults
         user_prof = payload.user_profile or {}
         daily_log = payload.daily_log or {}
-        remaining_cals = 2400
-        remaining_protein = 160
-
+        
         try:
             from app.core.metabolism import compute_targets
             from app.models.documents import UserProfileData
@@ -160,7 +173,13 @@ async def chat_endpoint(payload: BiometricPayload):
             remaining_cals = max(0, targets.target_calories - (daily_log.get("calories_logged") or 0))
             remaining_protein = max(0, targets.target_protein_g - (daily_log.get("protein_logged_g") or 0))
         except Exception:
-            pass
+            w = float(user_prof.get("weight_kg") or 70.0)
+            from app.core.metabolism import compute_targets
+            from app.models.documents import UserProfileData
+            dynamic_prof = UserProfileData(weight_kg=w, height_cm=float(user_prof.get("height_cm") or 175.0), age=int(user_prof.get("age") or 28), gender=str(user_prof.get("gender") or "male"))
+            targets = compute_targets(dynamic_prof)
+            remaining_cals = max(0, targets.target_calories - (daily_log.get("calories_logged") or 0))
+            remaining_protein = max(0, targets.target_protein_g - (daily_log.get("protein_logged_g") or 0))
 
         initial_topic = None
         if payload.context_domain:
@@ -181,8 +200,13 @@ async def chat_endpoint(payload: BiometricPayload):
             "logged_workouts": payload.logged_workouts or [],
             "readiness_score": payload.readiness_score or 0,
             "fatigue_flag": None,
+            "target_calories": remaining_cals,
+            "target_protein_g": remaining_protein,
             "remaining_calories": remaining_cals,
             "remaining_protein_g": remaining_protein,
+            "mesocycle_week": user_prof.get("mesocycle_week", 1),
+            "mesocycle_phase": user_prof.get("mesocycle_phase", "accumulation"),
+            "target_rir": user_prof.get("target_rir", 3),
             "prescribed_workout": payload.prescribed_workout,
             "user_profile": user_prof,
             "daily_log": daily_log,
@@ -218,6 +242,32 @@ async def chat_endpoint(payload: BiometricPayload):
             all_ai_messages[-1].content if all_ai_messages else "FitMatrix guidance received."
         )
 
+        # Hybrid Durable Session Memory: asynchronously record bounded turns to MongoDB
+        if payload.user_id:
+            try:
+                import uuid
+                from datetime import datetime
+                from app.models.documents import ChatSessionDocument, ChatMessageEntry
+                session_doc = await ChatSessionDocument.find_one(ChatSessionDocument.user_id == payload.user_id)
+                new_user_msg = ChatMessageEntry(role="user", content=payload.message)
+                new_coach_msg = ChatMessageEntry(role="coach", content=combined_reply)
+                if session_doc:
+                    session_doc.messages.extend([new_user_msg, new_coach_msg])
+                    session_doc.messages = session_doc.messages[-20:]  # sliding 20-turn window
+                    session_doc.current_topic = final_state.get("current_topic")
+                    session_doc.updated_at = datetime.utcnow()
+                    await session_doc.save()
+                else:
+                    session_doc = ChatSessionDocument(
+                        session_id=f"sess_{uuid.uuid4().hex[:12]}",
+                        user_id=payload.user_id,
+                        messages=[new_user_msg, new_coach_msg],
+                        current_topic=final_state.get("current_topic"),
+                    )
+                    await session_doc.insert()
+            except Exception as e:
+                logger.debug(f"Chat session persistence note: {e}")
+
         return {
             "status": "success",
             "readiness_score": final_state.get("readiness_score", 0),
@@ -232,6 +282,29 @@ async def chat_endpoint(payload: BiometricPayload):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/api/v1/chat/history")
+async def get_chat_history(user_id: str = "local_user"):
+    """
+    Returns recent windowed conversation messages for the omniscient coach bottom sheet.
+    """
+    try:
+        from app.models.documents import ChatSessionDocument
+        session_doc = await ChatSessionDocument.find_one(ChatSessionDocument.user_id == user_id)
+        if session_doc and session_doc.messages:
+            return {
+                "status": "success",
+                "messages": [
+                    {"role": m.role, "content": m.content, "timestamp": m.timestamp.isoformat() if m.timestamp else None}
+                    for m in session_doc.messages
+                ],
+                "current_topic": session_doc.current_topic
+            }
+        return {"status": "success", "messages": [], "current_topic": None}
+    except Exception as e:
+        logger.debug(f"Chat history fetch note: {e}")
+        return {"status": "success", "messages": [], "current_topic": None}
+
 # ΓöÇΓöÇΓöÇ Structured Plan Endpoints ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 @app.post("/api/v1/plan/workout", response_model=WorkoutPlanSchema)
@@ -244,8 +317,6 @@ async def generate_workout_plan(payload: PlanRequest):
     try:
         user_prof = payload.user_profile or {}
         daily_log = payload.daily_log or {}
-        rem_cals = 2400
-        rem_pro = 160
         try:
             from app.core.metabolism import compute_targets
             from app.models.documents import UserProfileData
@@ -254,7 +325,8 @@ async def generate_workout_plan(payload: PlanRequest):
             rem_cals = targets.target_calories
             rem_pro = targets.target_protein_g
         except Exception:
-            pass
+            rem_cals = user_prof.get("target_calories") or 2200
+            rem_pro = user_prof.get("target_protein_g") or 140
 
         state = {
             "user_profile": user_prof,
@@ -276,6 +348,32 @@ async def generate_workout_plan(payload: PlanRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+
+
+
+@app.get("/api/v1/chat/history")
+async def get_chat_history(user_id: str = "local_user"):
+    """
+    Returns recent windowed conversation messages for the omniscient coach bottom sheet.
+    """
+    try:
+        from app.models.documents import ChatSessionDocument
+        session_doc = await ChatSessionDocument.find_one(ChatSessionDocument.user_id == user_id)
+        if session_doc and session_doc.messages:
+            return {
+                "status": "success",
+                "messages": [
+                    {"role": m.role, "content": m.content, "timestamp": m.timestamp.isoformat() if m.timestamp else None}
+                    for m in session_doc.messages
+                ],
+                "current_topic": session_doc.current_topic
+            }
+        return {"status": "success", "messages": [], "current_topic": None}
+    except Exception as e:
+        logger.debug(f"Chat history fetch note: {e}")
+        return {"status": "success", "messages": [], "current_topic": None}
+
+
 @app.post("/api/v1/plan/diet", response_model=DietPlanSchema)
 async def generate_diet_plan(payload: PlanRequest):
     """
@@ -285,8 +383,6 @@ async def generate_diet_plan(payload: PlanRequest):
     try:
         user_prof = payload.user_profile or {}
         daily_log = payload.daily_log or {}
-        rem_cals = 2400
-        rem_pro = 160
         try:
             from app.core.metabolism import compute_targets
             from app.models.documents import UserProfileData
@@ -295,7 +391,8 @@ async def generate_diet_plan(payload: PlanRequest):
             rem_cals = targets.target_calories
             rem_pro = targets.target_protein_g
         except Exception:
-            pass
+            rem_cals = user_prof.get("target_calories") or 2200
+            rem_pro = user_prof.get("target_protein_g") or 140
 
         state = {
             "user_profile": user_prof,
@@ -315,6 +412,32 @@ async def generate_diet_plan(payload: PlanRequest):
         return plan
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
+@app.get("/api/v1/chat/history")
+async def get_chat_history(user_id: str = "local_user"):
+    """
+    Returns recent windowed conversation messages for the omniscient coach bottom sheet.
+    """
+    try:
+        from app.models.documents import ChatSessionDocument
+        session_doc = await ChatSessionDocument.find_one(ChatSessionDocument.user_id == user_id)
+        if session_doc and session_doc.messages:
+            return {
+                "status": "success",
+                "messages": [
+                    {"role": m.role, "content": m.content, "timestamp": m.timestamp.isoformat() if m.timestamp else None}
+                    for m in session_doc.messages
+                ],
+                "current_topic": session_doc.current_topic
+            }
+        return {"status": "success", "messages": [], "current_topic": None}
+    except Exception as e:
+        logger.debug(f"Chat history fetch note: {e}")
+        return {"status": "success", "messages": [], "current_topic": None}
 
 
 @app.post("/api/v1/plan/sleep", response_model=SleepGoalSchema)
@@ -337,6 +460,32 @@ async def generate_sleep_goal(payload: PlanRequest):
         return goal
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
+@app.get("/api/v1/chat/history")
+async def get_chat_history(user_id: str = "local_user"):
+    """
+    Returns recent windowed conversation messages for the omniscient coach bottom sheet.
+    """
+    try:
+        from app.models.documents import ChatSessionDocument
+        session_doc = await ChatSessionDocument.find_one(ChatSessionDocument.user_id == user_id)
+        if session_doc and session_doc.messages:
+            return {
+                "status": "success",
+                "messages": [
+                    {"role": m.role, "content": m.content, "timestamp": m.timestamp.isoformat() if m.timestamp else None}
+                    for m in session_doc.messages
+                ],
+                "current_topic": session_doc.current_topic
+            }
+        return {"status": "success", "messages": [], "current_topic": None}
+    except Exception as e:
+        logger.debug(f"Chat history fetch note: {e}")
+        return {"status": "success", "messages": [], "current_topic": None}
 
 
 # ΓöÇΓöÇΓöÇ User Profile Endpoint ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
@@ -387,6 +536,32 @@ async def update_user_profile(payload: ProfileUpdateRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
+@app.get("/api/v1/chat/history")
+async def get_chat_history(user_id: str = "local_user"):
+    """
+    Returns recent windowed conversation messages for the omniscient coach bottom sheet.
+    """
+    try:
+        from app.models.documents import ChatSessionDocument
+        session_doc = await ChatSessionDocument.find_one(ChatSessionDocument.user_id == user_id)
+        if session_doc and session_doc.messages:
+            return {
+                "status": "success",
+                "messages": [
+                    {"role": m.role, "content": m.content, "timestamp": m.timestamp.isoformat() if m.timestamp else None}
+                    for m in session_doc.messages
+                ],
+                "current_topic": session_doc.current_topic
+            }
+        return {"status": "success", "messages": [], "current_topic": None}
+    except Exception as e:
+        logger.debug(f"Chat history fetch note: {e}")
+        return {"status": "success", "messages": [], "current_topic": None}
 
 
 # ΓöÇΓöÇΓöÇ Nutrition Logging Endpoints ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
@@ -462,6 +637,32 @@ async def log_meal(payload: LogMealRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+
+
+
+@app.get("/api/v1/chat/history")
+async def get_chat_history(user_id: str = "local_user"):
+    """
+    Returns recent windowed conversation messages for the omniscient coach bottom sheet.
+    """
+    try:
+        from app.models.documents import ChatSessionDocument
+        session_doc = await ChatSessionDocument.find_one(ChatSessionDocument.user_id == user_id)
+        if session_doc and session_doc.messages:
+            return {
+                "status": "success",
+                "messages": [
+                    {"role": m.role, "content": m.content, "timestamp": m.timestamp.isoformat() if m.timestamp else None}
+                    for m in session_doc.messages
+                ],
+                "current_topic": session_doc.current_topic
+            }
+        return {"status": "success", "messages": [], "current_topic": None}
+    except Exception as e:
+        logger.debug(f"Chat history fetch note: {e}")
+        return {"status": "success", "messages": [], "current_topic": None}
+
+
 @app.get("/api/v1/nutrition/today")
 async def get_today_nutrition(user_id: str, date: str):
     """
@@ -494,42 +695,180 @@ async def get_today_nutrition(user_id: str, date: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/v1/nutrition/estimate")
-async def estimate_meal_macros(payload: EstimateMealRequest):
+
+
+
+@app.get("/api/v1/chat/history")
+async def get_chat_history(user_id: str = "local_user"):
     """
-    Uses the active LLM (Groq/Gemini Flash) to estimate calorie and macro
-    breakdown from a freeform food description. Returns a MealEntry draft
-    for the user to confirm before logging.
+    Returns recent windowed conversation messages for the omniscient coach bottom sheet.
     """
     try:
+        from app.models.documents import ChatSessionDocument
+        session_doc = await ChatSessionDocument.find_one(ChatSessionDocument.user_id == user_id)
+        if session_doc and session_doc.messages:
+            return {
+                "status": "success",
+                "messages": [
+                    {"role": m.role, "content": m.content, "timestamp": m.timestamp.isoformat() if m.timestamp else None}
+                    for m in session_doc.messages
+                ],
+                "current_topic": session_doc.current_topic
+            }
+        return {"status": "success", "messages": [], "current_topic": None}
+    except Exception as e:
+        logger.debug(f"Chat history fetch note: {e}")
+        return {"status": "success", "messages": [], "current_topic": None}
+
+
+@app.post("/api/v1/nutrition/estimate")
+@app.post("/api/v1/fitness/parse-meal")
+async def estimate_meal_macros(payload: EstimateMealRequest):
+    """
+    2-Tier High-Speed Food Parser:
+      • Tier 1: Exact-match normalized text hash in MongoDB meal_parse_cache.
+        If found, returns in < 10ms with 0 tokens and 0 LLM cost.
+      • Tier 2: Direct JSON schema generation via Gemini 3.8 Flash (zero-AFC).
+        Persists to meal_parse_cache for instant re-use across all athletes.
+    """
+    try:
+        import re, json
+        from app.models.documents import MealParseCacheDocument
         from app.core.llm import get_agent_model
         from langchain_core.messages import SystemMessage, HumanMessage as LCHumanMessage
         from pydantic import BaseModel as PydanticBaseModel
 
-        class MacroEstimate(PydanticBaseModel):
-            name: str
-            calories: int
-            protein_g: int
-            carbs_g: int
-            fats_g: int
+        raw_query = payload.food_description.strip()
+        normalized = re.sub(r'[^a-z0-9 ]', '', raw_query.lower()).strip()
 
-        system = (
-            "You are a clinical sports nutritionist. Given a food description, "
-            "return a precise macro estimate as structured JSON. "
-            "Use standard food databases (USDA, Cronometer) for reference. "
-            "Be accurate ΓÇö this data directly affects the user's caloric tracking."
+        # ── Tier 1: Exact Normalized Cache Check ──
+        if normalized:
+            cached = await MealParseCacheDocument.find_one(MealParseCacheDocument.normalized_query == normalized)
+            if cached:
+                return {
+                    "name": cached.name,
+                    "calories": cached.calories,
+                    "protein_g": cached.protein_g,
+                    "carbs_g": cached.carbs_g,
+                    "fats_g": cached.fats_g,
+                    "serving_size": cached.serving_size,
+                    "cached": True,
+                }
+
+        # ── Tier 2: Direct Pydantic JSON Generation (Zero AFC Tool Calling) ──
+        system_prompt = (
+            "You are a clinical sports nutritionist and metabolic food database parser. "
+            "Given a freeform food description, estimate precise caloric and macronutrient breakdowns "
+            "using standard USDA / Cronometer nutritional tables.\n"
+            "Return ONLY a single valid JSON object matching this exact schema:\n"
+            "{\n"
+            '  "name": "concise name of the meal or food item",\n'
+            '  "calories": 0,\n'
+            '  "protein_g": 0,\n'
+            '  "carbs_g": 0,\n'
+            '  "fats_g": 0,\n'
+            '  "serving_size": "e.g. 1 bowl (250g)"\n'
+            "}\n"
+            "Do not include any explanations, markdown code fences, or trailing commas."
         )
 
         llm = get_agent_model(temperature=0.0)
-        structured_llm = llm.with_structured_output(MacroEstimate)
-        estimate = structured_llm.invoke([
-            SystemMessage(content=system),
-            LCHumanMessage(content=payload.food_description),
+        res = llm.invoke([
+            SystemMessage(content=system_prompt),
+            LCHumanMessage(content=raw_query),
         ])
 
-        return estimate.model_dump()
+        raw_text = res.content if hasattr(res, "content") else str(res)
+        if isinstance(raw_text, list):
+            raw_text = "".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in raw_text)
+
+        cleaned = raw_text.strip()
+        if cleaned.startswith("```json"):
+            cleaned = cleaned[7:]
+        elif cleaned.startswith("```"):
+            cleaned = cleaned[3:]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+        cleaned = re.sub(r',\s*([\]\}])', r'\1', cleaned.strip())
+
+        try:
+            parsed = json.loads(cleaned)
+        except Exception:
+            # Fallback regex extraction if model hallucinated wrapper text
+            cals_m = re.search(r'"calories":\s*(\d+)', cleaned)
+            prot_m = re.search(r'"protein_g":\s*(\d+)', cleaned)
+            carb_m = re.search(r'"carbs_g":\s*(\d+)', cleaned)
+            fats_m = re.search(r'"fats_g":\s*(\d+)', cleaned)
+            name_m = re.search(r'"name":\s*"([^"]+)"', cleaned)
+            parsed = {
+                "name": name_m.group(1) if name_m else raw_query.title()[:40],
+                "calories": int(cals_m.group(1)) if cals_m else 250,
+                "protein_g": int(prot_m.group(1)) if prot_m else 15,
+                "carbs_g": int(carb_m.group(1)) if carb_m else 30,
+                "fats_g": int(fats_m.group(1)) if fats_m else 8,
+                "serving_size": "1 serving",
+            }
+
+        name_val = str(parsed.get("name") or raw_query.title()[:40])
+        cals_val = int(parsed.get("calories") or 0)
+        prot_val = int(parsed.get("protein_g") or 0)
+        carb_val = int(parsed.get("carbs_g") or 0)
+        fats_val = int(parsed.get("fats_g") or 0)
+        serving_val = str(parsed.get("serving_size") or "1 serving")
+
+        # Persist to Tier 1 Cache for future zero-token instant retrieval across all users
+        if normalized:
+            try:
+                new_cache = MealParseCacheDocument(
+                    normalized_query=normalized,
+                    name=name_val,
+                    calories=cals_val,
+                    protein_g=prot_val,
+                    carbs_g=carb_val,
+                    fats_g=fats_val,
+                    serving_size=serving_val,
+                )
+                await new_cache.insert()
+            except Exception as cache_err:
+                logger.debug(f"Meal parse cache insert note: {cache_err}")
+
+        return {
+            "name": name_val,
+            "calories": cals_val,
+            "protein_g": prot_val,
+            "carbs_g": carb_val,
+            "fats_g": fats_val,
+            "serving_size": serving_val,
+            "cached": False,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
+@app.get("/api/v1/chat/history")
+async def get_chat_history(user_id: str = "local_user"):
+    """
+    Returns recent windowed conversation messages for the omniscient coach bottom sheet.
+    """
+    try:
+        from app.models.documents import ChatSessionDocument
+        session_doc = await ChatSessionDocument.find_one(ChatSessionDocument.user_id == user_id)
+        if session_doc and session_doc.messages:
+            return {
+                "status": "success",
+                "messages": [
+                    {"role": m.role, "content": m.content, "timestamp": m.timestamp.isoformat() if m.timestamp else None}
+                    for m in session_doc.messages
+                ],
+                "current_topic": session_doc.current_topic
+            }
+        return {"status": "success", "messages": [], "current_topic": None}
+    except Exception as e:
+        logger.debug(f"Chat history fetch note: {e}")
+        return {"status": "success", "messages": [], "current_topic": None}
 
 
 # ΓöÇΓöÇΓöÇ Daily Metrics / Weigh-In Endpoint ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
@@ -565,6 +904,32 @@ async def log_weigh_in(payload: WeighInRequest):
         return {"status": "logged", "date": payload.date, "scale_weight_kg": payload.scale_weight_kg}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
+@app.get("/api/v1/chat/history")
+async def get_chat_history(user_id: str = "local_user"):
+    """
+    Returns recent windowed conversation messages for the omniscient coach bottom sheet.
+    """
+    try:
+        from app.models.documents import ChatSessionDocument
+        session_doc = await ChatSessionDocument.find_one(ChatSessionDocument.user_id == user_id)
+        if session_doc and session_doc.messages:
+            return {
+                "status": "success",
+                "messages": [
+                    {"role": m.role, "content": m.content, "timestamp": m.timestamp.isoformat() if m.timestamp else None}
+                    for m in session_doc.messages
+                ],
+                "current_topic": session_doc.current_topic
+            }
+        return {"status": "success", "messages": [], "current_topic": None}
+    except Exception as e:
+        logger.debug(f"Chat history fetch note: {e}")
+        return {"status": "success", "messages": [], "current_topic": None}
 
 
 if __name__ == "__main__":

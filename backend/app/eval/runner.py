@@ -82,7 +82,11 @@ async def execute_benchmark_run(
         elif mode == "chat":
             tracer.start_step("langgraph_execution")
             try:
-                # Prepare graph state
+                # Prepare graph state dynamically — zero hardcoded constant leaks
+                user_prof = payload.get("user_profile", {})
+                target_cals = payload.get("remaining_calories") or user_prof.get("target_calories") or 2200
+                target_pro = payload.get("remaining_protein_g") or user_prof.get("target_protein_g") or 150
+
                 initial_state = {
                     "messages": [HumanMessage(content=user_message)],
                     "steps_today": payload.get("steps_today", 0),
@@ -92,10 +96,17 @@ async def execute_benchmark_run(
                     "logged_workouts": [],
                     "readiness_score": payload.get("readiness_score", 0),
                     "fatigue_flag": None,
-                    "remaining_calories": 2400,
-                    "remaining_protein_g": 160,
+                    "target_calories": target_cals,
+                    "target_protein_g": target_pro,
+                    "remaining_calories": target_cals,
+                    "remaining_protein_g": target_pro,
+                    "muscle_soreness_rating": payload.get("muscle_soreness_rating", 1),
+                    "is_training_day": payload.get("is_training_day", True),
+                    "mesocycle_week": user_prof.get("mesocycle_week", 1),
+                    "mesocycle_phase": user_prof.get("mesocycle_phase", "accumulation"),
+                    "target_rir": user_prof.get("target_rir", 3),
                     "prescribed_workout": None,
-                    "user_profile": payload.get("user_profile", {}),
+                    "user_profile": user_prof,
                     "daily_log": payload.get("daily_log", {}),
                     "current_topic": None,
                     "workout_plan": None,
@@ -108,9 +119,13 @@ async def execute_benchmark_run(
                 final_state = fitmatrix_graph.invoke(initial_state, config={"recursion_limit": 10})
 
                 ai_messages = [m for m in final_state.get("messages", []) if isinstance(m, AIMessage)]
-                reply_text = ai_messages[-1].content if ai_messages else "Guidance produced."
-                if isinstance(reply_text, list):
-                    reply_text = "".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in reply_text)
+                combined_replies = []
+                for m in ai_messages:
+                    if isinstance(m.content, str):
+                        combined_replies.append(m.content)
+                    elif isinstance(m.content, list):
+                        combined_replies.append("".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in m.content))
+                reply_text = "\n\n".join(combined_replies) if combined_replies else "Guidance produced."
 
                 actual_output = {
                     "status": "success",

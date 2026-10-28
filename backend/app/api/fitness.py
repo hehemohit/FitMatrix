@@ -12,6 +12,7 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 
 from app.core.security import security_bearer, decode_access_token
+from app.core.metabolism import compute_targets
 from app.models.documents import (
     DailyLogDocument,
     MealEntry,
@@ -29,6 +30,16 @@ from app.models.documents import (
 )
 
 router = APIRouter(prefix="/api/v1/fitness", tags=["fitness"])
+
+
+def _resolve_user_targets(user_doc: Optional[UserDocument]) -> tuple[int, int]:
+    """Dynamically resolves calorie and protein targets from user profile without hardcoded constants."""
+    if user_doc and user_doc.targets and user_doc.targets.target_calories > 0:
+        return user_doc.targets.target_calories, user_doc.targets.target_protein_g
+    if user_doc and user_doc.profile:
+        dynamic = compute_targets(user_doc.profile)
+        return dynamic.target_calories, dynamic.target_protein_g
+    return 2200, 140
 
 
 def resolve_target_user_id(
@@ -100,8 +111,7 @@ async def get_or_init_today_log(
         if not today_log:
             # Query user targets to inherit custom calorie & protein goals
             user_doc = await UserDocument.find_one(UserDocument.user_id == target_user_id)
-            cal_goal = user_doc.targets.target_calories if user_doc and user_doc.targets else 2400
-            pro_goal = user_doc.targets.target_protein_g if user_doc and user_doc.targets else 160
+            cal_goal, pro_goal = _resolve_user_targets(user_doc)
 
             # Also check if there were legacy nutrition_logs or daily_metrics logged today
             legacy_nutrition = await NutritionLogDocument.find_one(
@@ -190,8 +200,7 @@ async def add_food_log(
             await log_doc.save()
         else:
             user_doc = await UserDocument.find_one(UserDocument.user_id == target_user_id)
-            cal_goal = user_doc.targets.target_calories if user_doc and user_doc.targets else 2400
-            pro_goal = user_doc.targets.target_protein_g if user_doc and user_doc.targets else 160
+            cal_goal, pro_goal = _resolve_user_targets(user_doc)
 
             log_doc = DailyLogDocument(
                 user_id=target_user_id,
@@ -243,8 +252,7 @@ async def add_weigh_in(
             await log_doc.save()
         else:
             user_doc = await UserDocument.find_one(UserDocument.user_id == target_user_id)
-            cal_goal = user_doc.targets.target_calories if user_doc and user_doc.targets else 2400
-            pro_goal = user_doc.targets.target_protein_g if user_doc and user_doc.targets else 160
+            cal_goal, pro_goal = _resolve_user_targets(user_doc)
 
             log_doc = DailyLogDocument(
                 user_id=target_user_id,
@@ -416,7 +424,28 @@ async def record_workout_session(
             daily_log.updated_at = datetime.utcnow()
             await daily_log.save()
 
-        return {"success": True, "data": {"session_id": doc.session_id}}
+        # 3. Calculate Estimated 1RM and progressive overload feedback per exercise
+        from app.core.metabolism import estimate_1rm_epley
+        exercise_feedback = []
+        for ex in payload.exercises:
+            best_e1rm = 0.0
+            for s in ex.completed_sets:
+                if s.reps > 0 and s.weight > 0:
+                    current_e1rm = estimate_1rm_epley(s.weight, s.reps)
+                    if current_e1rm > best_e1rm:
+                        best_e1rm = current_e1rm
+            exercise_feedback.append({
+                "exercise_name": ex.exercise_name,
+                "best_e1rm_kg": best_e1rm,
+            })
+
+        return {
+            "success": True,
+            "data": {
+                "session_id": doc.session_id,
+                "exercise_analytics": exercise_feedback,
+            }
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

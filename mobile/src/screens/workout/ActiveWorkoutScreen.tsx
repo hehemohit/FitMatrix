@@ -22,6 +22,7 @@ import { RestTimerSheet } from '../../components/workout/RestTimerSheet';
 import { WorkoutOptionMenuModal } from '../../components/workout/WorkoutOptionMenuModal';
 import { AddExerciseModal } from '../../components/workout/AddExerciseModal';
 import { ExerciseInfoModal } from '../../components/workout/ExerciseInfoModal';
+import { DiscomfortSwapModal } from '../../components/workout/DiscomfortSwapModal';
 import { ExerciseRecord } from '../../utils/muscleTargetMapper';
 
 interface ActiveWorkoutScreenProps {
@@ -84,6 +85,7 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
   const [renameModalVisible, setRenameModalVisible] = useState(false);
   const [renameText, setRenameText] = useState('');
   const [exerciseActionMenuIdx, setExerciseActionMenuIdx] = useState<number | null>(null);
+  const [discomfortModalIdx, setDiscomfortModalIdx] = useState<number | null>(null);
 
   // Aggregated set statistics
   const totalSets = exercises.reduce((acc, ex) => acc + ex.sets.length, 0);
@@ -102,6 +104,13 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
       setSwapExerciseIdx(null);
     } else {
       addExerciseToWorkout(selected);
+    }
+  };
+
+  const handleConfirmDiscomfortSwap = (replacement: ExerciseRecord) => {
+    if (discomfortModalIdx !== null) {
+      swapExerciseInWorkout(discomfortModalIdx, replacement);
+      setDiscomfortModalIdx(null);
     }
   };
 
@@ -246,6 +255,15 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
                     </Svg>
                   </TouchableOpacity>
 
+                  {/* ⚠️ Flag Discomfort / Biomechanical Auto-Regulation */}
+                  <TouchableOpacity
+                    style={styles.cardActionIconBtn}
+                    onPress={() => setDiscomfortModalIdx(exIdx)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={{ fontSize: 13 }}>⚠️</Text>
+                  </TouchableOpacity>
+
                   {/* ⋯ Exercise Action Menu */}
                   <TouchableOpacity
                     style={styles.cardActionIconBtn}
@@ -272,6 +290,30 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
                   returnKeyType="done"
                 />
               </View>
+
+              {/* Zero-Token Local Progressive Overload Suggestion Chip */}
+              {(() => {
+                const targetSet = ex.sets[activeSetIndex] || ex.sets[0];
+                const prevW = targetSet?.previousWeight || (ex.sets[0]?.weight > 0 ? ex.sets[0].weight : 135);
+                const targetW = prevW + 5;
+                const targetR = targetSet?.previousReps || 8;
+                const targetE1rm = Math.round(targetW * (1 + targetR / 30));
+
+                return (
+                  <TouchableOpacity
+                    style={styles.overloadChip}
+                    onPress={() => {
+                      updateSetWeight(exIdx, isSelectedEx ? activeSetIndex : 0, targetW);
+                      updateSetReps(exIdx, isSelectedEx ? activeSetIndex : 0, targetR);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.overloadChipText}>
+                      ⚡ <Text style={styles.overloadHighlight}>Overload Target:</Text> {targetW} lb × {targetR} reps · E1RM: {targetE1rm} lb (Tap to apply)
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })()}
 
               {/* Sets Logging Table */}
               <SetLoggingTable
@@ -512,6 +554,18 @@ export const ActiveWorkoutScreen: React.FC<ActiveWorkoutScreenProps> = ({
         visible={!!infoModalExercise}
         onClose={() => setInfoModalExercise(null)}
         exercise={infoModalExercise}
+      />
+
+      {/* ⚠️ Biomechanical Auto-Regulation & Discomfort Swap Modal */}
+      <DiscomfortSwapModal
+        visible={discomfortModalIdx !== null}
+        exerciseName={
+          discomfortModalIdx !== null && exercises[discomfortModalIdx]
+            ? exercises[discomfortModalIdx].name
+            : ''
+        }
+        onClose={() => setDiscomfortModalIdx(null)}
+        onConfirmSwap={handleConfirmDiscomfortSwap}
       />
     </View>
   );
@@ -779,6 +833,25 @@ const styles = StyleSheet.create({
     color: '#000000',
     fontWeight: '800',
     fontSize: 14,
+  },
+  overloadChip: {
+    backgroundColor: '#111e17',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#1e402c',
+    alignSelf: 'flex-start',
+  },
+  overloadChipText: {
+    fontSize: 11,
+    color: '#86efac',
+    fontWeight: '600',
+  },
+  overloadHighlight: {
+    color: '#4ade80',
+    fontWeight: '800',
   },
 });
 
