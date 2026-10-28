@@ -12,6 +12,7 @@ import { useWorkoutScheduleStore } from '../store/useWorkoutScheduleStore';
 import { useWorkoutSessionStore } from '../store/useWorkoutSessionStore';
 import { useExerciseLibraryStore } from '../store/useExerciseLibraryStore';
 import { useDashboardTabStore } from '../store/useDashboardTabStore';
+import { useUnifiedAthleteStore } from '../store/useUnifiedAthleteStore';
 
 export interface ActionExecutionResult {
   success: boolean;
@@ -36,6 +37,20 @@ export const dispatchAgentAction = async (
         const carbs_g = Number(payload.carbs_g || 0);
         const fats_g = Number(payload.fats_g || 0);
 
+        // 1. Central Unified Athlete Store (Single Source of Truth)
+        await useUnifiedAthleteStore.getState().logMeal({
+          mealId: `meal_ai_${Date.now()}`,
+          name: mealName,
+          category: (payload.meal_type as any) || 'Snack',
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          calories,
+          proteinG: protein_g,
+          carbsG: carbs_g,
+          fatsG: fats_g,
+          loggedAt: new Date().toISOString(),
+        });
+
+        // 2. Legacy Store Sync
         await useTrainerStore.getState().logMeal({
           meal_id: `meal_ai_${Date.now()}`,
           name: mealName,
@@ -136,6 +151,19 @@ export const dispatchAgentAction = async (
       // Action 4: UPDATE_TARGETS (Synchronized Metabolism)
       // ─────────────────────────────────────────────────────────────────────────
       case 'UPDATE_TARGETS': {
+        // 1. Central Unified Athlete Store
+        const centralProfile = useUnifiedAthleteStore.getState().athleteProfile;
+        const updatedTargets = {
+          ...centralProfile.targets,
+          ...(payload.target_calories ? { targetCalories: Number(payload.target_calories) } : {}),
+          ...(payload.target_protein_g ? { targetProteinG: Number(payload.target_protein_g) } : {}),
+        };
+        useUnifiedAthleteStore.getState().updateProfile({
+          targets: updatedTargets,
+          ...(payload.fitness_goal ? { fitnessGoal: payload.fitness_goal as any } : {}),
+        });
+
+        // 2. Legacy Store Sync
         const currentProfile = useTrainerStore.getState().userProfile;
         const updatedProfile = {
           ...currentProfile,
@@ -149,7 +177,7 @@ export const dispatchAgentAction = async (
         return {
           success: true,
           action_type,
-          message: confirmation_message || 'Metabolic targets synchronized.',
+          message: confirmation_message || 'Metabolic targets synchronized across all stores.',
         };
       }
 

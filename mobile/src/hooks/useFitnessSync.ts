@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { useTrainerStore } from '../store/useTrainerStore';
+import { useUnifiedAthleteStore } from '../store/useUnifiedAthleteStore';
 
 /**
  * useFitnessSync — React Native Lifecycle Synchronization
@@ -16,6 +17,7 @@ export const useFitnessSync = (): void => {
 
   useEffect(() => {
     // 1. Initial sync on mount
+    useUnifiedAthleteStore.getState().checkAndRollCalendarDay();
     syncTodayNutrition();
     syncHealth();
     syncDailyBriefing();
@@ -23,6 +25,7 @@ export const useFitnessSync = (): void => {
     // 2. Sync whenever app comes back from background
     const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
       if (nextState === 'active') {
+        useUnifiedAthleteStore.getState().checkAndRollCalendarDay();
         syncTodayNutrition();
         syncHealth();
         syncDailyBriefing();
