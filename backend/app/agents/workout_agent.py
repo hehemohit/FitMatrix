@@ -3,6 +3,8 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from app.core.llm import get_agent_model
 from app.graph.state import FitMatrixState
 from app.api.schemas import WorkoutPlanSchema
+from app.harness.prompt_manager import get_prompt_sync, get_guardrails_sync
+from app.harness.guardrails import GuardrailEngine
 
 
 def workout_agent_node(state: FitMatrixState) -> dict:
@@ -28,15 +30,12 @@ def workout_agent_node(state: FitMatrixState) -> dict:
         },
     }
 
-    system_prompt = (
-        "You are the FitMatrix Head Strength & Conditioning Coach.\n"
-        f"Active Athlete State:\n{json.dumps(state_context, indent=2)}\n\n"
-        "Prescription Rules:\n"
-        "- Tailor the workout to the user's fitness goal if specified in user_profile (e.g. hypertrophy, strength, endurance).\n"
-        "- If fatigue is 'high_fatigue' or readiness < 60: apply RPE auto-regulation (target RPE 6-7, reduce working volume by 1-2 sets, drop back-off failure sets, prioritize submaximal form) rather than canceling workouts.\n"
-        "- If fatigue is 'nominal' and readiness >= 60: prescribe high-intensity compound lifts, progressive overload (RPE 8-9), or goal-specific volume.\n"
-        "- Limit response to 2 crisp, actionable sentences."
-    )
+    # Dynamic prompt from prompt registry
+    prompt_template = get_prompt_sync("workout_agent")
+    if "{state_context}" in prompt_template:
+        system_prompt = prompt_template.format(state_context=json.dumps(state_context, indent=2))
+    else:
+        system_prompt = f"{prompt_template}\n\nActive Athlete State:\n{json.dumps(state_context, indent=2)}"
 
     # Decouple state from chat: use strictly the last 2 messages (recency window) to prevent O(N^2) token bloat
     raw_messages = list(state.get("messages", []))
@@ -59,8 +58,19 @@ def workout_agent_node(state: FitMatrixState) -> dict:
             for part in content
         )
 
+    # Runtime guardrail check: Auto-regulation enforcement in production
+    guardrails = get_guardrails_sync("workout_agent")
+    guard_result = GuardrailEngine.post_execution_check(
+        output_text=content,
+        state=state,
+        guardrail_config=guardrails,
+        is_production=True
+    )
+    final_workout_text = guard_result.get("sanitized_output", content)
+    response.content = final_workout_text
+
     return {
-        "prescribed_workout": content,
+        "prescribed_workout": final_workout_text,
         "messages": [response]
     }
 

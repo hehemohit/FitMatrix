@@ -30,6 +30,8 @@ from app.models.documents import (
     WorkoutSessionDocument,
     GymCheckInDocument,
     WeeklyScheduleDocument,
+    AgentPromptDocument,
+    EvalRunDocument,
 )
 
 logger = logging.getLogger(__name__)
@@ -92,6 +94,8 @@ async def init_db() -> None:
                 WorkoutSessionDocument,
                 GymCheckInDocument,
                 WeeklyScheduleDocument,
+                AgentPromptDocument,
+                EvalRunDocument,
             ],
         )
 

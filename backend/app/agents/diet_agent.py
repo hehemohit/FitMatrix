@@ -3,6 +3,8 @@ from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
 from app.core.llm import get_agent_model
 from app.graph.state import FitMatrixState
 from app.api.schemas import DietPlanSchema
+from app.harness.prompt_manager import get_prompt_sync, get_guardrails_sync
+from app.harness.guardrails import GuardrailEngine
 
 
 def diet_agent_node(state: FitMatrixState) -> dict:
@@ -25,15 +27,11 @@ def diet_agent_node(state: FitMatrixState) -> dict:
         },
     }
 
-    system_prompt = (
-        "You are the FitMatrix Lead Sports Nutritionist.\n"
-        f"Active Athlete State:\n{json.dumps(state_context, indent=2)}\n\n"
-        "Nutrition Rules:\n"
-        "- Strictly enforce user_profile.dietary_preference (e.g. if 'pure_vegetarian', exclusively prescribe paneer, lentils/dal, Greek yogurt, tofu, soy, or vegetarian whey; NEVER prescribe meat, fish, poultry, or eggs unless permitted).\n"
-        "- Strictly avoid any items in user_profile.allergies.\n"
-        "- Provide direct meal and macro timing recommendations (timing of complex carbs and protein around training/recovery).\n"
-        "- Keep response strictly under 3-4 crisp sentences."
-    )
+    prompt_template = get_prompt_sync("diet_agent")
+    if "{state_context}" in prompt_template:
+        system_prompt = prompt_template.format(state_context=json.dumps(state_context, indent=2))
+    else:
+        system_prompt = f"{prompt_template}\n\nActive Athlete State:\n{json.dumps(state_context, indent=2)}"
 
     # Decouple state from chat: use strictly the last 2 messages (recency window) to prevent O(N^2) token bloat
     raw_messages = list(state.get("messages", []))
@@ -55,7 +53,17 @@ def diet_agent_node(state: FitMatrixState) -> dict:
             part.get("text", "") if isinstance(part, dict) else str(part)
             for part in content
         )
-        response.content = content
+
+    # Runtime guardrail check: Dietary compliance and tone
+    guardrails = get_guardrails_sync("diet_agent")
+    guard_result = GuardrailEngine.post_execution_check(
+        output_text=content,
+        state=state,
+        guardrail_config=guardrails,
+        is_production=True
+    )
+    final_diet_text = guard_result.get("sanitized_output", content)
+    response.content = final_diet_text
 
     return {
         "messages": [response]

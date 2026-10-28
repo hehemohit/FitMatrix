@@ -21,6 +21,11 @@ from app.api.fitness import router as fitness_router
 from app.api.strategy import router as strategy_router
 from app.api.auth import router as auth_router
 from app.api.nutrition import router as nutrition_router
+from app.api.eval import router as eval_router
+from app.api.prompts import router as prompts_router
+from app.api.cards import router as cards_router
+from app.api.bridge import router as bridge_router
+from app.harness.guardrails import GuardrailEngine
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -42,6 +47,10 @@ app.include_router(fitness_router)
 app.include_router(strategy_router)
 app.include_router(auth_router)
 app.include_router(nutrition_router)
+app.include_router(eval_router)
+app.include_router(prompts_router)
+app.include_router(cards_router)
+app.include_router(bridge_router)
 
 class ChatHistoryItem(BaseModel):
     role: str  # 'user' | 'coach'
@@ -62,7 +71,7 @@ class BiometricPayload(BaseModel):
     daily_log: Optional[dict] = {}
     context_domain: Optional[str] = None   # 'workout' | 'diet' | 'sleep'
 
-# ─── Health Check ─────────────────────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇ Health Check ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 @app.get("/")
 @app.head("/")
@@ -70,7 +79,7 @@ class BiometricPayload(BaseModel):
 async def health_check():
     return {"status": "online", "project": settings.PROJECT_NAME}
 
-# ─── Readiness Computation Endpoint ──────────────────────────────────────────
+# ΓöÇΓöÇΓöÇ Readiness Computation Endpoint ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 class ReadinessRequest(BaseModel):
     steps_today: int = 0
@@ -103,11 +112,28 @@ async def compute_readiness_endpoint(payload: ReadinessRequest):
         resting_heart_rate_bpm=payload.resting_heart_rate_bpm,
     )
 
-# ─── Conversational Chat Endpoint ─────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇ Conversational Chat Endpoint ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 @app.post("/api/v1/chat")
 async def chat_endpoint(payload: BiometricPayload):
     try:
+        # Pre-Execution Guardrail: Intercept acute medical distress & biometric limits
+        guard_passed, guard_alert = GuardrailEngine.pre_execution_check(
+            user_message=payload.message,
+            state=payload.model_dump()
+        )
+        if not guard_passed:
+            return {
+                "status": "safety_refusal",
+                "readiness_score": payload.readiness_score or 0,
+                "fatigue_flag": "high_fatigue",
+                "prescribed_workout": "Rest / Medical Evaluation",
+                "reply": guard_alert,
+                "user_profile": payload.user_profile or {},
+                "daily_log": payload.daily_log or {},
+                "current_topic": "safety_intercept",
+            }
+
         # Decouple State from Chat: Window raw conversation turns to strictly the last 2 items
         # Persistent facts (diet preferences, goals, logs) live in structured user_profile / daily_log
         messages = []
@@ -168,7 +194,7 @@ async def chat_endpoint(payload: BiometricPayload):
         }
 
         # recursion_limit counts total node executions (not just LLM calls).
-        # Full 3-agent path: supervisor→sleep→supervisor→workout→supervisor→diet→supervisor = 7 nodes.
+        # Full 3-agent path: supervisorΓåÆsleepΓåÆsupervisorΓåÆworkoutΓåÆsupervisorΓåÆdietΓåÆsupervisor = 7 nodes.
         # Limit of 10 accommodates this while still preventing true infinite loops.
         final_state = fitmatrix_graph.invoke(
             initial_state,
@@ -206,13 +232,13 @@ async def chat_endpoint(payload: BiometricPayload):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# ─── Structured Plan Endpoints ─────────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇ Structured Plan Endpoints ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 @app.post("/api/v1/plan/workout", response_model=WorkoutPlanSchema)
 async def generate_workout_plan(payload: PlanRequest):
     """
     Generates a full structured WorkoutPlan artifact via the workout agent's
-    structured output mode. Separate from /api/v1/chat — fire-once, returns
+    structured output mode. Separate from /api/v1/chat ΓÇö fire-once, returns
     a validated JSON plan that hydrates Plan Studio cards on the mobile client.
     """
     try:
@@ -313,7 +339,7 @@ async def generate_sleep_goal(payload: PlanRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ─── User Profile Endpoint ────────────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇ User Profile Endpoint ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 class ProfileUpdateRequest(BaseModel):
     user_id: str
@@ -343,7 +369,7 @@ async def update_user_profile(payload: ProfileUpdateRequest):
                 targets=MetabolicTargets(),
             )
 
-        # Apply partial update — only overwrite fields explicitly provided
+        # Apply partial update ΓÇö only overwrite fields explicitly provided
         update_fields = payload.model_dump(exclude={"user_id"}, exclude_none=True)
         for field, value in update_fields.items():
             setattr(existing.profile, field, value)
@@ -363,7 +389,7 @@ async def update_user_profile(payload: ProfileUpdateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ─── Nutrition Logging Endpoints ───────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇ Nutrition Logging Endpoints ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 class LogMealRequest(BaseModel):
     user_id: str
@@ -491,7 +517,7 @@ async def estimate_meal_macros(payload: EstimateMealRequest):
             "You are a clinical sports nutritionist. Given a food description, "
             "return a precise macro estimate as structured JSON. "
             "Use standard food databases (USDA, Cronometer) for reference. "
-            "Be accurate — this data directly affects the user's caloric tracking."
+            "Be accurate ΓÇö this data directly affects the user's caloric tracking."
         )
 
         llm = get_agent_model(temperature=0.0)
@@ -506,7 +532,7 @@ async def estimate_meal_macros(payload: EstimateMealRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ─── Daily Metrics / Weigh-In Endpoint ────────────────────────────────────────
+# ΓöÇΓöÇΓöÇ Daily Metrics / Weigh-In Endpoint ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 class WeighInRequest(BaseModel):
     user_id: str

@@ -1,0 +1,254 @@
+"""
+FitMatrix Dynamic Prompt & Guardrail Registry (MongoDB Atlas + In-Memory Cache)
+-------------------------------------------------------------------------------
+Provides real-time dynamic prompt updates and guardrail configuration.
+Changes deployed from the evaluation dashboard instantly take effect
+for the production mobile application without redeploying code.
+"""
+
+import time
+import logging
+from typing import Dict, Any, Optional
+from datetime import datetime
+from app.models.documents import AgentPromptDocument
+
+logger = logging.getLogger(__name__)
+
+# Default Baselines (fallback if MongoDB is offline or uninitialized)
+BASELINE_PROMPTS = {
+    "workout_agent": (
+        "You are the FitMatrix Head Strength & Conditioning Coach.\n"
+        "Active Athlete State:\n{state_context}\n\n"
+        "Prescription Rules:\n"
+        "- Tailor the workout to the user's fitness goal if specified in user_profile (e.g. hypertrophy, strength, endurance).\n"
+        "- If fatigue is 'high_fatigue' or readiness < 60: apply RPE auto-regulation (target RPE 6-7, reduce working volume by 1-2 sets, drop back-off failure sets, prioritize submaximal form) rather than canceling workouts.\n"
+        "- If fatigue is 'nominal' and readiness >= 60: prescribe high-intensity compound lifts, progressive overload (RPE 8-9), or goal-specific volume.\n"
+        "- Limit response to 2 crisp, actionable sentences."
+    ),
+    "diet_agent": (
+        "You are the FitMatrix Lead Sports Nutritionist.\n"
+        "Active Athlete State:\n{state_context}\n\n"
+        "Nutrition Rules:\n"
+        "- Strictly enforce user_profile.dietary_preference (e.g. if 'pure_vegetarian', exclusively prescribe paneer, lentils/dal, Greek yogurt, tofu, soy, or vegetarian whey; NEVER prescribe meat, fish, poultry, or eggs unless permitted).\n"
+        "- Strictly avoid any items in user_profile.allergies.\n"
+        "- Provide direct meal and macro timing recommendations (timing of complex carbs and protein around training/recovery).\n"
+        "- Keep response strictly under 3-4 crisp sentences."
+    ),
+    "sleep_agent": (
+        "You are the FitMatrix Sleep Architect — an expert in sleep science and athletic recovery.\n"
+        "Generate a personalized nightly sleep protocol as structured JSON.\n"
+        "Athlete Data: {biometrics_summary}\n\n"
+        "Rules:\n"
+        "- Prescribe a target bedtime and wake time that provide 7-9 hours of sleep.\n"
+        "- Adjust recovery_score_threshold based on fatigue: 'high_fatigue' -> threshold 75+, 'nominal' -> 65+.\n"
+        "- Include 3 actionable wind-down milestones (e.g., blue light cutoff, temperature, breathwork)."
+    ),
+    "supervisor": (
+        "You are the FitMatrix Master Coordinator. Evaluate athlete telemetry and route to:\n"
+        "- 'sleep_agent' if biometric readiness is uncalculated or sleep debt is severe.\n"
+        "- 'workout_agent' if user asks for workout guidance or daily training prescription.\n"
+        "- 'diet_agent' if user asks for nutrition, food logging, or macro balancing.\n"
+        "- 'FINISH' when all required specialized guidance turns have concluded."
+    ),
+    "cards": (
+        "You are the FitMatrix Ambient Card Generator. Analyze active athlete biometrics, "
+        "recovery score, and daily goals to produce a high-impact, actionable summary card "
+        "tailored for mobile glanceability."
+    )
+}
+
+BASELINE_GUARDRAILS = {
+    "workout_agent": {
+        "max_rpe_when_fatigued": 7,
+        "forbid_failure_sets_when_fatigued": True,
+        "max_sentence_count": 3,
+    },
+    "diet_agent": {
+        "strict_allergy_enforcement": True,
+        "strict_diet_preference": True,
+        "max_sentence_count": 4,
+    },
+    "cards": {
+        "require_action_item": True,
+        "max_headline_length": 45,
+    }
+}
+
+# Cache structure: {role: {"prompt": str, "guardrails": dict, "version": str, "cached_at": float}}
+_PROMPT_CACHE: Dict[str, Dict[str, Any]] = {}
+CACHE_TTL_SECONDS = 30.0
+
+
+async def get_prompt(agent_role: str) -> str:
+    """Returns the currently active prompt template for an agent role."""
+    data = await _get_role_entry(agent_role)
+    return data["prompt"]
+
+
+async def get_guardrails(agent_role: str) -> dict:
+    """Returns the currently active runtime guardrail config for an agent role."""
+    data = await _get_role_entry(agent_role)
+    return data.get("guardrails", {})
+
+
+def get_prompt_sync(agent_role: str) -> str:
+    """Synchronous prompt accessor: checks RAM cache first, falls back to baseline."""
+    cached = _PROMPT_CACHE.get(agent_role)
+    if cached and cached.get("prompt"):
+        return cached["prompt"]
+    return BASELINE_PROMPTS.get(agent_role, "")
+
+
+def get_guardrails_sync(agent_role: str) -> dict:
+    """Synchronous guardrail accessor: checks RAM cache first, falls back to baseline."""
+    cached = _PROMPT_CACHE.get(agent_role)
+    if cached and cached.get("guardrails"):
+        return cached["guardrails"]
+    return BASELINE_GUARDRAILS.get(agent_role, {})
+
+
+async def get_active_version(agent_role: str) -> str:
+    """Returns the currently active version tag."""
+    data = await _get_role_entry(agent_role)
+    return data.get("version", "v1_baseline")
+
+
+async def _get_role_entry(agent_role: str) -> Dict[str, Any]:
+    now = time.time()
+    cached = _PROMPT_CACHE.get(agent_role)
+    if cached and (now - cached["cached_at"] < CACHE_TTL_SECONDS):
+        return cached
+
+    # Attempt fetching from MongoDB Atlas if client is connected
+    try:
+        from app.core.database import _mongo_client
+        if _mongo_client is not None:
+            doc = await AgentPromptDocument.find_one(AgentPromptDocument.agent_role == agent_role)
+            if doc and doc.system_prompt:
+                entry = {
+                    "prompt": doc.system_prompt,
+                    "guardrails": doc.guardrails or BASELINE_GUARDRAILS.get(agent_role, {}),
+                    "version": doc.active_version or "v1_production",
+                    "cached_at": now,
+                }
+                _PROMPT_CACHE[agent_role] = entry
+                return entry
+    except Exception as e:
+        logger.warning("MongoDB prompt lookup for '%s' failed (%s), using baseline.", agent_role, e)
+
+    # Fallback to hardcoded baseline
+    entry = {
+        "prompt": BASELINE_PROMPTS.get(agent_role, ""),
+        "guardrails": BASELINE_GUARDRAILS.get(agent_role, {}),
+        "version": "v1_baseline",
+        "cached_at": now,
+    }
+    _PROMPT_CACHE[agent_role] = entry
+    return entry
+
+
+async def list_all_prompts() -> list[dict]:
+    """Lists all agent prompt configs from MongoDB, or baselines if empty."""
+    results = []
+    roles = ["workout_agent", "diet_agent", "sleep_agent", "supervisor", "cards"]
+
+    for role in roles:
+        entry = await _get_role_entry(role)
+        doc = None
+        try:
+            doc = await AgentPromptDocument.find_one(AgentPromptDocument.agent_role == role)
+        except Exception:
+            pass
+
+        versions_dict = doc.versions if doc else {"v1_baseline": BASELINE_PROMPTS.get(role, "")}
+        results.append({
+            "agent_role": role,
+            "active_version": entry.get("version", "v1_baseline"),
+            "system_prompt": entry.get("prompt", ""),
+            "guardrails": entry.get("guardrails", {}),
+            "versions": versions_dict,
+            "updated_at": doc.updated_at.isoformat() if doc and doc.updated_at else datetime.utcnow().isoformat(),
+        })
+    return results
+
+
+async def update_prompt_version(
+    agent_role: str,
+    version_tag: str,
+    prompt_text: str,
+    guardrails: Optional[dict] = None,
+    promote: bool = False
+) -> dict:
+    """
+    Saves a new prompt version to MongoDB Atlas.
+    If promote=True, immediately marks it as the active production prompt.
+    """
+    now = datetime.utcnow()
+    guardrails = guardrails or BASELINE_GUARDRAILS.get(agent_role, {})
+
+    doc = None
+    try:
+        doc = await AgentPromptDocument.find_one(AgentPromptDocument.agent_role == agent_role)
+    except Exception as e:
+        logger.warning("Error fetching document for update: %s", e)
+
+    if not doc:
+        doc = AgentPromptDocument(
+            prompt_id=f"prompt_{agent_role}",
+            agent_role=agent_role,
+            active_version=version_tag if promote else "v1_baseline",
+            system_prompt=prompt_text if promote else BASELINE_PROMPTS.get(agent_role, prompt_text),
+            versions={version_tag: prompt_text, "v1_baseline": BASELINE_PROMPTS.get(agent_role, prompt_text)},
+            guardrails=guardrails,
+            updated_at=now,
+        )
+        try:
+            await doc.insert()
+        except Exception as e:
+            logger.error("Could not insert new AgentPromptDocument: %s", e)
+    else:
+        doc.versions[version_tag] = prompt_text
+        if guardrails:
+            doc.guardrails.update(guardrails)
+        if promote:
+            doc.active_version = version_tag
+            doc.system_prompt = prompt_text
+        doc.updated_at = now
+        try:
+            await doc.save()
+        except Exception as e:
+            logger.error("Could not update AgentPromptDocument: %s", e)
+
+    # Invalidate local cache
+    if agent_role in _PROMPT_CACHE:
+        del _PROMPT_CACHE[agent_role]
+
+    return {
+        "status": "success",
+        "agent_role": agent_role,
+        "active_version": doc.active_version,
+        "promoted": promote,
+        "updated_at": doc.updated_at.isoformat()
+    }
+
+
+async def promote_version(agent_role: str, version_tag: str) -> dict:
+    """Promotes an existing version in MongoDB to active production."""
+    doc = await AgentPromptDocument.find_one(AgentPromptDocument.agent_role == agent_role)
+    if not doc or version_tag not in doc.versions:
+        raise ValueError(f"Version '{version_tag}' not found for agent '{agent_role}'")
+
+    doc.active_version = version_tag
+    doc.system_prompt = doc.versions[version_tag]
+    doc.updated_at = datetime.utcnow()
+    await doc.save()
+
+    if agent_role in _PROMPT_CACHE:
+        del _PROMPT_CACHE[agent_role]
+
+    return {
+        "status": "success",
+        "agent_role": agent_role,
+        "active_version": version_tag,
+        "system_prompt": doc.system_prompt,
+    }

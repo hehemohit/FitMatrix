@@ -358,4 +358,64 @@ class WeeklyScheduleDocument(Document):
         name = "weekly_schedules"
 
 
+class AgentPromptDocument(Document):
+    """
+    Collection: agent_prompts
+    Dynamic system prompts, persona settings, and guardrail rules for FitMatrix agents.
+    Allows runtime prompt tuning and promotion directly to production mobile apps.
+    """
+    prompt_id: Annotated[str, Indexed(unique=True)]  # e.g. "workout_agent", "diet_agent", "supervisor", "cards"
+    agent_role: str                                  # "workout_agent" | "diet_agent" | "supervisor" | "cards"
+    active_version: str = "v1_baseline"              # e.g. "v1_baseline", "v2_autoregulation"
+    system_prompt: str                               # The active system prompt template
+    versions: dict = Field(default_factory=dict)     # version_tag -> prompt string
+    guardrails: dict = Field(default_factory=dict)   # e.g. {"max_rpe_when_fatigued": 7, "enforce_veg": True}
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Settings:
+        name = "agent_prompts"
+        indexes = [[("agent_role", 1)]]
+
+
+class EvalCaseTrace(BaseModel):
+    test_case_id: str
+    scenario_name: str
+    input_message: str
+    biometrics_summary: dict = Field(default_factory=dict)
+    routing_path: List[str] = Field(default_factory=list)
+    tool_calls: List[dict] = Field(default_factory=list)
+    deterministic_passed: bool = True
+    deterministic_checks: dict = Field(default_factory=dict)
+    llm_judge_score: float = 5.0
+    llm_judge_rubric: dict = Field(default_factory=dict)
+    llm_judge_reasoning: str = ""
+    latency_ms: int = 0
+    token_usage: dict = Field(default_factory=dict)
+    final_reply: str = ""
+    card_artifact: Optional[dict] = None
+
+
+class EvalRunDocument(Document):
+    """
+    Collection: eval_runs
+    Persists evaluation run results, step traces, scores, and model comparisons.
+    """
+    run_id: Annotated[str, Indexed(unique=True)]
+    model_name: str
+    prompt_version: str
+    status: str = "completed"                        # "running" | "completed" | "failed"
+    total_cases: int = 0
+    passed_cases: int = 0
+    pass_rate: float = 0.0
+    avg_latency_ms: float = 0.0
+    total_cost_usd: float = 0.0
+    avg_judge_score: float = 0.0
+    cases: List[EvalCaseTrace] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Settings:
+        name = "eval_runs"
+        indexes = [[("created_at", -1)], [("model_name", 1)]]
+
+
 

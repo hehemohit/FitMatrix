@@ -191,6 +191,13 @@ export default function LandingPage() {
           {/* Trailing Action Cluster */}
           <div className="flex items-center gap-3">
             <a
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-cyan-500/40 bg-cyan-950/40 text-cyan-300 font-['JetBrains_Mono'] text-xs hover:bg-cyan-900/60 hover:border-cyan-400 transition-all cursor-pointer shadow-sm shadow-cyan-500/20"
+              href="/eval-dashboard"
+            >
+              <span className="material-symbols-outlined text-base">psychology</span>
+              <span>Agent Eval Studio</span>
+            </a>
+            <a
               className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#3b4a40]/50 text-[#e2e2e8] font-['JetBrains_Mono'] text-xs hover:bg-[#1e2024] hover:border-[#849589] transition-all cursor-pointer"
               href="#reproducibility"
               onClick={(e) => scrollToSection(e, "#reproducibility")}
