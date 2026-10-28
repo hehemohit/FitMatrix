@@ -243,12 +243,12 @@ export const useUnifiedAthleteStore = create<UnifiedAthleteState>((set, get) => 
       });
 
       updated.targets = {
-        bmr: derived.bmr,
-        tdee: derived.tdee,
-        targetCalories: derived.target_calories,
-        targetProteinG: derived.target_protein_g,
-        targetCarbsG: derived.target_carbs_g,
-        targetFatsG: derived.target_fats_g,
+        bmr: patch.targets?.bmr || derived.bmr,
+        tdee: patch.targets?.tdee || derived.tdee,
+        targetCalories: patch.targets?.targetCalories || derived.target_calories,
+        targetProteinG: patch.targets?.targetProteinG || derived.target_protein_g,
+        targetCarbsG: patch.targets?.targetCarbsG || derived.target_carbs_g,
+        targetFatsG: patch.targets?.targetFatsG || derived.target_fats_g,
         computedAt: new Date().toISOString(),
       };
 

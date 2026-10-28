@@ -37,11 +37,14 @@ export const dispatchAgentAction = async (
         const carbs_g = Number(payload.carbs_g || 0);
         const fats_g = Number(payload.fats_g || 0);
 
+        const validCategories = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Pre-Workout', 'Post-Workout'] as const;
+        const normalizedCategory = validCategories.find(c => c.toLowerCase() === (payload.meal_type || '').toLowerCase()) || 'Snack';
+
         // 1. Central Unified Athlete Store (Single Source of Truth)
         await useUnifiedAthleteStore.getState().logMeal({
           mealId: `meal_ai_${Date.now()}`,
           name: mealName,
-          category: (payload.meal_type as any) || 'Snack',
+          category: normalizedCategory,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           calories,
           proteinG: protein_g,
