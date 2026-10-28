@@ -50,6 +50,12 @@ export interface BiometricPayload {
   context_domain?: string;
 }
 
+export interface AgentActionDispatch {
+  action_type: 'LOG_MEAL' | 'SCHEDULE_WORKOUT' | 'START_WORKOUT' | 'UPDATE_TARGETS' | string;
+  payload: Record<string, any>;
+  confirmation_message: string;
+}
+
 export interface CoachResponse {
   status: string;
   readiness_score: number;
@@ -59,6 +65,7 @@ export interface CoachResponse {
   user_profile?: UserProfile;
   daily_log?: DailyLog;
   current_topic?: string | null;
+  action_dispatches?: AgentActionDispatch[];
 }
 
 // ─── MacroFactor Strategy Command Center Types ──────────────────────────────

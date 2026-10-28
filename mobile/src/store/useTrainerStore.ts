@@ -22,6 +22,7 @@ import {
   CheckInResult,
 } from '../types/schema';
 import { WorkoutPlan, DietPlan, SleepGoal } from '../types/plans';
+import { useWorkoutScheduleStore } from './useWorkoutScheduleStore';
 import { HealthSnapshot } from '../services/healthService';
 import {
   sendBiometricsAndMessage,
@@ -160,6 +161,12 @@ interface TrainerState {
   syncHabitsHistory: () => Promise<void>;
   weighIn: (weightKg: number) => Promise<void>;
   syncCurrentWeight: (weightKg: number) => void;
+  recordWorkoutExpenditure: (params: {
+    workoutName: string;
+    durationMin: number;
+    caloriesBurned: number;
+    muscles: string[];
+  }) => void;
   resetChat: () => void;
 
   // Strategy Actions
@@ -406,6 +413,11 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
         const plan = await generateWorkoutPlan(planPayload);
         persist('workout_plan', plan);
         set({ workoutPlan: plan, planLoading: false });
+        try {
+          useWorkoutScheduleStore.getState().syncWithAiPlan(plan);
+        } catch (syncErr) {
+          console.warn('[useTrainerStore] schedule sync with AI plan note:', syncErr);
+        }
       } else if (type === 'diet') {
         const plan = await generateDietPlan(planPayload);
         persist('diet_plan', plan);
@@ -685,6 +697,35 @@ export const useTrainerStore = create<TrainerState>((set, get) => ({
   },
 
   // ── resetChat: clears messages but keeps profile/plans ──
+  recordWorkoutExpenditure: (params: {
+    workoutName: string;
+    durationMin: number;
+    caloriesBurned: number;
+    muscles: string[];
+  }) => {
+    const currentLog = get().dailyLog;
+    const currentCompleted = currentLog.workouts_completed || [];
+    const updatedLog: DailyLog = {
+      ...currentLog,
+      workouts_completed: [...currentCompleted, params.workoutName],
+    };
+
+    const currentTargets = get().metabolicTargets;
+    const updatedTargets = {
+      ...currentTargets,
+      tdee: (currentTargets.tdee || 2400) + params.caloriesBurned,
+      target_calories: (currentTargets.target_calories || 2200) + params.caloriesBurned,
+    };
+
+    set({
+      dailyLog: updatedLog,
+      metabolicTargets: updatedTargets,
+    });
+
+    persist('dailyLog', updatedLog);
+    persist('metabolicTargets', updatedTargets);
+  },
+
   resetChat: () => {
     set({
       messages: [{ sender: 'coach', text: 'FitMatrix initialized. How can I guide your training today?' }],

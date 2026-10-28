@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { createMMKV, type MMKV } from 'react-native-mmkv';
 import { syncWeeklySchedule } from '../api/coachApi';
+import { WorkoutPlan } from '../types/plans';
 
 const storage: MMKV = createMMKV({ id: 'fitmatrix-workout-schedule' });
 
@@ -66,6 +67,7 @@ interface WorkoutScheduleState {
   addExerciseToDayRoutine: (dayName: string, exerciseId: string) => void;
   getPlannedWorkoutDaysCount: () => number;
   resetToDefault: () => void;
+  syncWithAiPlan: (plan: WorkoutPlan) => void;
 }
 
 const loadScheduleFromStorage = (): DaySchedule[] => {
@@ -204,6 +206,49 @@ export const useWorkoutScheduleStore = create<WorkoutScheduleState>((set, get) =
 
   getPlannedWorkoutDaysCount: () => {
     return get().schedule.filter(d => !d.isRest).length;
+  },
+
+  syncWithAiPlan: (plan: WorkoutPlan) => {
+    if (!plan || !Array.isArray(plan.days) || plan.days.length === 0) return;
+
+    const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const updated: DaySchedule[] = daysOfWeek.map((dayName, idx) => {
+      const matched = plan.days.find(
+        d => (d.day || '').toLowerCase().includes(dayName.toLowerCase()) || (d.day || '').toLowerCase() === `day ${idx + 1}`
+      ) || (idx < plan.days.length ? plan.days[idx] : null);
+
+      if (matched && matched.exercises && matched.exercises.length > 0) {
+        const muscles = matched.targetMuscleGroups && matched.targetMuscleGroups.length > 0
+          ? matched.targetMuscleGroups.join(' & ')
+          : 'Target Routine';
+        const nameLower = muscles.toLowerCase();
+        let iconType: 'push' | 'pull' | 'legs' = 'push';
+        if (nameLower.includes('pull') || nameLower.includes('back')) iconType = 'pull';
+        else if (nameLower.includes('leg') || nameLower.includes('squat')) iconType = 'legs';
+
+        return {
+          dayName,
+          isRest: false,
+          routines: [
+            {
+              id: `r_ai_${idx}_${Date.now()}`,
+              name: muscles,
+              exerciseCount: matched.exercises.length,
+              iconType,
+            },
+          ],
+        };
+      } else {
+        return {
+          dayName,
+          isRest: true,
+          routines: [],
+        };
+      }
+    });
+
+    saveScheduleToStorage(updated);
+    set({ schedule: updated });
   },
 
   resetToDefault: () => {

@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { useTrainerStore } from '../../store/useTrainerStore';
 import { sendBiometricsAndMessage, getChatHistory, getActiveUserIdFromAuth } from '../../api/coachApi';
+import { dispatchAgentAction } from '../../services/agentActionDispatcher';
 
 interface CoachBottomSheetProps {
   visible: boolean;
@@ -149,6 +150,29 @@ export const CoachBottomSheet: React.FC<CoachBottomSheetProps> = ({ visible, onC
         timestamp: new Date().toISOString(),
       };
       setMessages(prev => [...prev, coachMsg]);
+
+      // Execute any returned MCP-style actions
+      if (response.action_dispatches && response.action_dispatches.length > 0) {
+        for (const action of response.action_dispatches) {
+          const res = await dispatchAgentAction(action);
+          if (res.success) {
+            setMessages(prev => [
+              ...prev,
+              {
+                id: `act_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+                role: 'coach',
+                text: `⚡ Executed: ${res.message}`,
+                timestamp: new Date().toISOString(),
+              },
+            ]);
+            if (action.action_type === 'START_WORKOUT') {
+              setTimeout(() => {
+                onClose();
+              }, 700);
+            }
+          }
+        }
+      }
     } catch (err: any) {
       const errorMsg: MessageItem = {
         id: `err_${Date.now()}`,

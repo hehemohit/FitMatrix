@@ -268,6 +268,22 @@ async def chat_endpoint(payload: BiometricPayload):
             except Exception as e:
                 logger.debug(f"Chat session persistence note: {e}")
 
+        # Executable Agent Action Engine: detect and build client actions (MCP-style)
+        action_dispatches = []
+        try:
+            from app.tools.agent_action_tools import detect_and_build_actions
+            action_dispatches = await detect_and_build_actions(
+                user_message=payload.message,
+                coach_reply=combined_reply,
+                athlete_context={
+                    "user_profile": final_state.get("user_profile", user_prof),
+                    "daily_log": final_state.get("daily_log", daily_log),
+                    "readiness_score": final_state.get("readiness_score", 0),
+                }
+            )
+        except Exception as act_err:
+            logger.debug(f"Action dispatch generation note: {act_err}")
+
         return {
             "status": "success",
             "readiness_score": final_state.get("readiness_score", 0),
@@ -277,6 +293,7 @@ async def chat_endpoint(payload: BiometricPayload):
             "user_profile": final_state.get("user_profile", user_prof),
             "daily_log": final_state.get("daily_log", daily_log),
             "current_topic": final_state.get("current_topic"),
+            "action_dispatches": action_dispatches,
         }
 
     except Exception as e:

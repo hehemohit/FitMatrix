@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { createMMKV, type MMKV } from 'react-native-mmkv';
 import { ExerciseRecord } from '../utils/muscleTargetMapper';
 import { useWorkoutHistoryStore } from './useWorkoutHistoryStore';
+import { useTrainerStore } from './useTrainerStore';
 
 const storage: MMKV = createMMKV({ id: 'fitmatrix-active-workout' });
 
@@ -368,8 +369,15 @@ export const useWorkoutSessionStore = create<WorkoutSessionState>((set, get) => 
 
     try {
       useWorkoutHistoryStore.getState().saveWorkout(summary);
+      const estCalories = Math.max(120, Math.round((state.elapsedSeconds / 60) * 7.5));
+      useTrainerStore.getState().recordWorkoutExpenditure({
+        workoutName: state.workoutName || 'Workout Session',
+        durationMin: Math.max(1, Math.round(state.elapsedSeconds / 60)),
+        caloriesBurned: estCalories,
+        muscles: Array.from(trained),
+      });
     } catch (e) {
-      console.warn('Failed to save workout to history:', e);
+      console.warn('Failed to save workout to history or sync nutrition:', e);
     }
 
     return summary;
